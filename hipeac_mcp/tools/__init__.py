@@ -1,6 +1,6 @@
 """MCP tools for HiPEAC member analysis."""
 
-from . import members  # noqa: F401
+from . import members, metadata
 
 
-__all__ = ["members"]
+__all__ = ["members", "metadata"]

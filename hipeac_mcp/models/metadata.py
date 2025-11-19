@@ -6,10 +6,6 @@ from django.db import models
 class Metadata(models.Model):
     """Metadata model for topics, application areas, institution types, etc."""
 
-    APPLICATION_AREA = "application_area"
-    TOPIC = "topic"
-    INSTITUTION_TYPE = "institution_type"
-
     type = models.CharField(max_length=32)
     value = models.CharField(max_length=64)
     position = models.PositiveSmallIntegerField(default=0)

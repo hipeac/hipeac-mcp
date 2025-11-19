@@ -1,7 +1,19 @@
 """Tests for member search and discovery tools."""
 
 import inspect
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
+
+
+def make_async_iterator(items):
+    """Helper to create an async iterator from a list."""
+
+    async def async_gen():
+        for item in items:
+            yield item
+
+    return async_gen()
 
 
 class TestMemberTools:
@@ -13,87 +25,114 @@ class TestMemberTools:
 
         assert callable(search_members)
 
-    def test_find_experts_callable(self):
-        """Test find_experts tool is callable and registered."""
-        from hipeac_mcp.tools.members import find_experts
-
-        assert callable(find_experts)
-
+    @pytest.mark.asyncio
+    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_no_results(self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst):
+    async def test_search_members_no_results(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst, mock_cache
+    ):
         """Test search_members returns message when no results found."""
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         mock_qs = MagicMock()
         mock_qs.distinct.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
         mock_qs.filter.return_value = mock_qs
-        mock_qs.__getitem__.return_value = []
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        result = search_members(query="NonExistent")
+        result = await search_members(query="NonExistent")
 
-        assert "No members found" in result
+        assert result.total == 0
+        assert result.members == []
 
+    @pytest.mark.asyncio
+    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_with_results(self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst):
+    async def test_search_members_with_results(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst, mock_cache
+    ):
         """Test search_members returns formatted results."""
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         mock_member = Mock()
         mock_member.id = 1
         mock_member.first_name = "Jane"
         mock_member.last_name = "Smith"
         mock_member.username = "jsmith"
-        mock_member.memberships.filter.return_value = []
+        mock_member.profile.institution.name = "Test University"
+        mock_member.profile.institution.country = "BE"
+
+        # Mock memberships.filter() to return async iterator
+        mock_memberships = MagicMock()
+        mock_memberships.__aiter__ = lambda self: make_async_iterator([])
+        mock_member.memberships.filter.return_value = mock_memberships
 
         mock_qs = MagicMock()
         mock_qs.distinct.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
         mock_qs.filter.return_value = mock_qs
-        mock_qs.__getitem__.return_value = [mock_member]
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([mock_member])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        mock_rel_inst.objects.filter.return_value.select_related.return_value = []
-        mock_rel_topic.objects.filter.return_value.select_related.return_value = []
-        mock_rel_area.objects.filter.return_value.select_related.return_value = []
+        # Mock the relation queries for profile details
+        mock_rel_inst_result = MagicMock()
+        mock_rel_inst_result.__aiter__ = lambda self: make_async_iterator([])
+        mock_rel_inst.objects.filter.return_value.select_related.return_value = mock_rel_inst_result
 
-        result = search_members(query="Jane")
+        mock_rel_topic_result = MagicMock()
+        mock_rel_topic_result.__aiter__ = lambda self: make_async_iterator([])
+        mock_rel_topic.objects.filter.return_value.select_related.return_value = mock_rel_topic_result
 
-        assert "Found 1 member(s)" in result
-        assert "Jane Smith" in result
-        assert "@jsmith" in result
-        assert "https://www.hipeac.net/~jsmith/" in result
+        mock_rel_area_result = MagicMock()
+        mock_rel_area_result.__aiter__ = lambda self: make_async_iterator([])
+        mock_rel_area.objects.filter.return_value.select_related.return_value = mock_rel_area_result
 
+        result = await search_members(query="Jane")
+
+        assert result.total == 1
+        assert len(result.members) == 1
+        assert result.members[0].first_name == "Jane"
+        assert result.members[0].last_name == "Smith"
+        assert result.members[0].username == "jsmith"
+        assert str(result.members[0].profile_url) == "https://www.hipeac.net/~jsmith/"
+
+    @pytest.mark.asyncio
+    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_with_topic_filter(self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst):
+    async def test_search_members_with_topic_filter(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst, mock_cache
+    ):
         """Test search_members with topic filter."""
+        from hipeac_mcp.schemas.members import MemberSearchResponse
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         mock_topic_qs = MagicMock()
-        mock_topic_qs.values_list.return_value = [1, 2]
+        mock_values_list = MagicMock()
+        mock_values_list.__aiter__ = lambda self: make_async_iterator([1, 2])
+        mock_topic_qs.values_list.return_value = mock_values_list
         mock_rel_topic.objects.filter.return_value = mock_topic_qs
 
         mock_qs = MagicMock()
@@ -101,28 +140,34 @@ class TestMemberTools:
         mock_qs.filter.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
-        mock_qs.__getitem__.return_value = []
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        result = search_members(topics=["AI"])
+        result = await search_members(topic_ids=[42])
 
         mock_rel_topic.objects.filter.assert_called()
-        assert isinstance(result, str)
+        assert isinstance(result, MemberSearchResponse)
+        assert result.total == 0
 
+    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_with_country_filter(self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst):
+    async def test_search_members_with_country_filter(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst
+    ):
         """Test search_members with country filter."""
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         mock_inst_qs = MagicMock()
-        mock_inst_qs.values_list.return_value = [1, 2, 3]
+        mock_values_list = MagicMock()
+        mock_values_list.__aiter__ = lambda self: make_async_iterator([1, 2, 3])
+        mock_inst_qs.values_list.return_value = mock_values_list
         mock_rel_inst.objects.filter.return_value = mock_inst_qs
 
         mock_qs = MagicMock()
@@ -130,25 +175,28 @@ class TestMemberTools:
         mock_qs.filter.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
-        mock_qs.__getitem__.return_value = []
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        result = search_members(countries=["BE"])
+        await search_members(countries=["BE"])
 
         mock_rel_inst.objects.filter.assert_called()
         mock_qs.filter.assert_called()
 
+    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_limit_enforced(self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst):
+    async def test_search_members_limit_enforced(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst
+    ):
         """Test search_members enforces max limit of 100."""
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         # Mock user queryset
         mock_qs = MagicMock()
@@ -156,84 +204,36 @@ class TestMemberTools:
         mock_qs.filter.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
-        mock_qs.__getitem__.return_value = []
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        search_members(limit=200)
+        await search_members(limit=200)
 
         mock_qs.__getitem__.assert_called()
         call_args = mock_qs.__getitem__.call_args
         assert call_args[0][0].stop == 100
 
-    @patch("hipeac_mcp.tools.members.Metadata")
-    @patch("hipeac_mcp.tools.members.RelInstitution")
-    @patch("hipeac_mcp.tools.members.RelApplicationArea")
-    @patch("hipeac_mcp.tools.members.RelTopic")
-    @patch("hipeac_mcp.tools.members.User")
-    @patch("hipeac_mcp.tools.members.ContentType")
-    def test_find_experts_with_topic(
-        self, mock_ct, mock_user, mock_rel_topic, mock_rel_area, mock_rel_inst, mock_metadata
-    ):
-        """Test find_experts searches by topic."""
-        from hipeac_mcp.tools.members import Metadata, find_experts
-
-        mock_ct.objects.get.return_value = MagicMock(id=1)
-
-        mock_meta = Mock()
-        mock_meta.id = 5
-        mock_meta.value = "Machine Learning"
-        mock_meta.type = Metadata.TOPIC
-
-        mock_meta_qs = MagicMock()
-        mock_meta_qs.filter.return_value = [mock_meta]
-        mock_metadata.objects.filter.return_value = mock_meta_qs
-        mock_metadata.TOPIC = Metadata.TOPIC
-
-        mock_topic_qs = MagicMock()
-        mock_topic_qs.values_list.return_value = [1, 2]
-        mock_rel_topic.objects.filter.return_value = mock_topic_qs
-
-        mock_inst_qs = MagicMock()
-        mock_inst_qs.values_list.return_value = []
-        mock_rel_inst.objects.filter.return_value = mock_inst_qs
-
-        mock_expert = Mock()
-        mock_expert.id = 1
-        mock_expert.first_name = "Expert"
-        mock_expert.last_name = "User"
-        mock_expert.username = "expert1"
-        mock_expert.profile.institution.name = "University"
-
-        mock_qs = MagicMock()
-        mock_qs.distinct.return_value = mock_qs
-        mock_qs.filter.return_value = mock_qs
-        mock_qs.select_related.return_value = mock_qs
-        mock_qs.__getitem__.return_value = [mock_expert]
-
-        mock_user.objects.filter.return_value = mock_qs
-
-        result = find_experts(expertise=["Machine Learning"])
-
-        assert isinstance(result, str)
-        mock_metadata.objects.filter.assert_called()
-        mock_rel_topic.objects.filter.assert_called()
-
+    @pytest.mark.asyncio
+    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_with_application_area_filter(
-        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst
+    async def test_search_members_with_application_area_filter(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst, mock_cache
     ):
         """Test search_members with application area filter."""
+        from hipeac_mcp.schemas.members import MemberSearchResponse
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         mock_area_qs = MagicMock()
-        mock_area_qs.values_list.return_value = [5, 6]
+        mock_area_values = MagicMock()
+        mock_area_values.__aiter__ = lambda self: make_async_iterator([5, 6])
+        mock_area_qs.values_list.return_value = mock_area_values
         mock_rel_area.objects.filter.return_value = mock_area_qs
 
         mock_qs = MagicMock()
@@ -241,30 +241,36 @@ class TestMemberTools:
         mock_qs.filter.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
-        mock_qs.__getitem__.return_value = []
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        result = search_members(application_areas=["Healthcare"])
+        result = await search_members(application_area_ids=[5])
 
         mock_rel_area.objects.filter.assert_called()
-        assert isinstance(result, str)
+        assert isinstance(result, MemberSearchResponse)
+        assert result.total == 0
 
+    @pytest.mark.asyncio
+    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_with_institution_type_filter(
-        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst
+    async def test_search_members_with_institution_type_filter(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst, mock_cache
     ):
         """Test search_members with institution type filter."""
+        from hipeac_mcp.schemas.members import MemberSearchResponse
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         mock_inst_qs = MagicMock()
-        mock_inst_qs.values_list.return_value = [10, 11]
+        mock_inst_values = MagicMock()
+        mock_inst_values.__aiter__ = lambda self: make_async_iterator([10, 11])
+        mock_inst_qs.values_list.return_value = mock_inst_values
         mock_rel_inst.objects.filter.return_value = mock_inst_qs
 
         mock_qs = MagicMock()
@@ -272,27 +278,31 @@ class TestMemberTools:
         mock_qs.filter.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
-        mock_qs.__getitem__.return_value = []
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        result = search_members(institution_types=["academia"])
+        result = await search_members(institution_type_ids=[1])
 
         mock_rel_inst.objects.filter.assert_called()
-        assert isinstance(result, str)
+        assert isinstance(result, MemberSearchResponse)
+        assert result.total == 0
 
+    @pytest.mark.asyncio
+    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_with_membership_type_filter(
-        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst
+    async def test_search_members_with_membership_type_filter(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst, mock_cache
     ):
         """Test search_members with membership type filter."""
+        from hipeac_mcp.schemas.members import MemberSearchResponse
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         # Mock user queryset
         mock_qs = MagicMock()
@@ -300,32 +310,38 @@ class TestMemberTools:
         mock_qs.filter.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
-        mock_qs.__getitem__.return_value = []
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        result = search_members(membership_types=["member", "associated_member"])
+        result = await search_members(membership_types=["member", "associated_member"])
 
         assert mock_qs.filter.call_count == 1
         call_args = mock_qs.filter.call_args
         assert "memberships__type__in" in str(call_args)
-        assert isinstance(result, str)
+        assert isinstance(result, MemberSearchResponse)
+        assert result.total == 0
 
+    @pytest.mark.asyncio
+    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
     @patch("hipeac_mcp.tools.members.User")
     @patch("hipeac_mcp.tools.members.ContentType")
-    def test_search_members_with_numeric_topic_id(
-        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst
+    async def test_search_members_with_numeric_topic_id(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst, mock_cache
     ):
         """Test search_members handles numeric topic IDs."""
+        from hipeac_mcp.schemas.members import MemberSearchResponse
         from hipeac_mcp.tools.members import search_members
 
-        mock_ct.objects.get.return_value = MagicMock(id=1)
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
 
         mock_topic_qs = MagicMock()
-        mock_topic_qs.values_list.return_value = [1]
+        mock_topic_values = MagicMock()
+        mock_topic_values.__aiter__ = lambda self: make_async_iterator([1])
+        mock_topic_qs.values_list.return_value = mock_topic_values
         mock_rel_topic.objects.filter.return_value = mock_topic_qs
 
         mock_qs = MagicMock()
@@ -333,14 +349,15 @@ class TestMemberTools:
         mock_qs.filter.return_value = mock_qs
         mock_qs.select_related.return_value = mock_qs
         mock_qs.prefetch_related.return_value = mock_qs
-        mock_qs.__getitem__.return_value = []
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
 
         mock_user.objects.filter.return_value = mock_qs
 
-        result = search_members(topics=["42"])
+        result = await search_members(topic_ids=[42])
 
         mock_rel_topic.objects.filter.assert_called()
-        assert isinstance(result, str)
+        assert isinstance(result, MemberSearchResponse)
+        assert result.total == 0
 
     def test_search_members_parameter_types(self):
         """Test search_members accepts correct parameter types."""
@@ -349,21 +366,12 @@ class TestMemberTools:
         sig = inspect.signature(search_members)
 
         assert "query" in sig.parameters
-        assert "topics" in sig.parameters
-        assert "application_areas" in sig.parameters
+        assert "topic_ids" in sig.parameters
+        assert "application_area_ids" in sig.parameters
         assert "countries" in sig.parameters
-        assert "institution_types" in sig.parameters
+        assert "institution_type_ids" in sig.parameters
         assert "membership_types" in sig.parameters
         assert "limit" in sig.parameters
-
-    def test_find_experts_parameter_types(self):
-        """Test find_experts accepts correct parameter types."""
-        from hipeac_mcp.tools.members import find_experts
-
-        sig = inspect.signature(find_experts)
-
-        assert "expertise" in sig.parameters
-        assert "min_members" in sig.parameters or "country" in sig.parameters
 
 
 class TestMemberModels:

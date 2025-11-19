@@ -21,6 +21,7 @@ dependencies = [
 dev = [
   "deadcode",
   "pytest",
+  "pytest-asyncio",
   "pytest-cov",
   "ruff",
 ]
@@ -36,6 +37,8 @@ show_missing = true
 
 [tool.pytest.ini_options]
 addopts = "--cov=hipeac_mcp"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["."]
 
 [tool.ruff]

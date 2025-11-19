@@ -1,6 +1,3 @@
-"""MCP resources for HiPEAC metadata."""
+"""MCP resources for HiPEAC."""
 
-from . import metadata  # noqa: F401
-
-
-__all__ = ["metadata"]
+__all__ = []

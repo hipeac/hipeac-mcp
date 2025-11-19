@@ -16,15 +16,15 @@ class TestServerInitialization:
         from hipeac_mcp import mcp
 
         tool_names = [tool.name for tool in mcp._tool_manager._tools.values()]
+        assert "get_metadata" in tool_names
         assert "search_members" in tool_names
-        assert "find_experts" in tool_names
         assert len(tool_names) == 2
 
     def test_resources_registered(self):
-        """Test that resources are registered with the server."""
+        """Test that no resources are registered (moved to tools)."""
         from hipeac_mcp import mcp
 
-        assert len(mcp._resource_manager._resources) == 4
+        assert len(mcp._resource_manager._resources) == 0
 
     def test_server_asgi_app(self):
         """Test that server exports ASGI app."""

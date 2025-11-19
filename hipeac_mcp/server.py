@@ -1,21 +1,40 @@
-"""HTTP/SSE server for production deployment.
+"""ASGI production application.
 
-This module provides an ASGI application for the MCP server,
-suitable for deployment via Dokku with Uvicorn workers.
+This module provides the MCP server via Streamable HTTP transport.
+Endpoint: POST / (at root)
 """
 
-import os
+from django.db import close_old_connections
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from hipeac_mcp import mcp
-
-
-app = mcp.sse_app()
+from . import mcp
 
 
-if __name__ == "__main__":
-    import os
+class DatabaseConnectionMiddleware(BaseHTTPMiddleware):
+    """Middleware to manage Django database connections per request.
 
-    port = int(os.environ.get("PORT", 5000))
-    mcp.settings.port = port
-    mcp.settings.host = "0.0.0.0"
-    mcp.run(transport="sse")
+    This ensures connections are closed properly after each request to prevent
+    stale connection errors (2006, 2026) in long-running servers with async ORM.
+
+    With CONN_MAX_AGE=0, close_old_connections() closes all connections immediately.
+    We also close connections before each request to ensure fresh connections.
+    """
+
+    async def dispatch(self, request, call_next):
+        """Process request with proper database connection lifecycle.
+
+        :param request: The incoming request.
+        :param call_next: The next middleware or endpoint.
+        :returns: The response.
+        """
+        close_old_connections()
+
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            close_old_connections()
+
+
+app = mcp.streamable_http_app()
+app.add_middleware(DatabaseConnectionMiddleware)

@@ -22,7 +22,9 @@ DATABASES = {
             "charset": "utf8mb4",
             "ssl_mode": "REQUIRED",
             "init_command": "SET SESSION TRANSACTION READ ONLY; SET sql_mode='STRICT_TRANS_TABLES';",
+            "connect_timeout": 3,
         },
+        "CONN_MAX_AGE": 0,  # Don't persist connections with sync_to_async thread pools
     }
 }
 

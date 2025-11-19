@@ -78,10 +78,12 @@ The descriptions explicitly reference resources, creating a discovery loop.
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and configure your database connection:
+1. Set environment variables:
 
    ```bash
-   cp .env.example .env
+   export DATABASE_URL="mysql://user:pass@host:port/dbname"
+   export SENTRY_MCP_DSN="https://your-sentry-dsn@sentry.io/project"  # Optional
+   export GIT_REV="v1.0.0"  # Optional, for release tracking
    ```
 
 2. Install dependencies:
@@ -97,21 +99,39 @@ The descriptions explicitly reference resources, creating a discovery loop.
 
 ## Integration with Claude Desktop
 
-Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+### Using the Remote Server (Recommended)
+
+Once deployed, users can connect to the server by adding this to their Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+**Streamable HTTP transport** (recommended):
 
 ```json
 {
   "mcpServers": {
     "hipeac": {
-      "command": "/path/to/hipeac-mcp/run",
-      "args": ["python", "-m", "hipeac_mcp"],
-      "env": {
-        "DATABASE_URL": "mysql://hipeac:password@localhost:3306/hipeac"
-      }
+      "url": "https://mcp.hipeac.net/stream"
     }
   }
 }
 ```
+
+**SSE transport** (alternative):
+
+```json
+{
+  "mcpServers": {
+    "hipeac": {
+      "url": "https://mcp.hipeac.net/sse"
+    }
+  }
+}
+```
+
+The server provides multiple transport endpoints:
+
+- `/stream` - Streamable HTTP (POST-based, recommended)
+- `/sse` - Server-Sent Events transport
+- `/` - Health check endpoint
 
 ## Development
 
@@ -166,6 +186,8 @@ This server can be deployed to any Dokku instance:
 dokku apps:create mcp
 dokku mysql:link hipeac-db mcp
 dokku config:set mcp DATABASE_URL=mysql://user:pass@host:port/hipeac
+dokku config:set mcp SENTRY_MCP_DSN=https://your-sentry-dsn@sentry.io/project  # Optional
+dokku config:set mcp GIT_REV=$(git rev-parse --short HEAD)  # Optional
 
 # Push to deploy
 git remote add dokku dokku@your-server:mcp
@@ -178,19 +200,34 @@ The server uses **Uvicorn with multiple workers** for production deployment. By 
 
 - **Server**: Uvicorn (async ASGI server)
 - **Workers**: 2 worker processes (configurable)
-- **Transport**: Server-Sent Events (SSE) at `/sse` endpoint
+- **Transports**:
+  - Streamable HTTP at `/stream` (POST-based MCP protocol)
+  - SSE at `/sse` (Server-Sent Events)
+  - Health check at `/`
 - **Concurrency**: Multiple workers for multi-core CPU utilization
 
 ### Client Configuration
 
-The server will be available via SSE at `https://mcp.hipeac.net/sse` for integration with AI agents and clients.
+The server provides multiple endpoints for different MCP transports:
 
-For Claude Desktop or other MCP clients:
+**Streamable HTTP** (recommended):
 
 ```json
 {
   "mcpServers": {
-    "HiPEAC": {
+    "hipeac": {
+      "url": "https://mcp.hipeac.net/stream"
+    }
+  }
+}
+```
+
+**SSE** (alternative):
+
+```json
+{
+  "mcpServers": {
+    "hipeac": {
       "url": "https://mcp.hipeac.net/sse"
     }
   }
