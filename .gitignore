@@ -1,0 +1,26 @@
+.DS_Store
+._*
+
+# Coding helper files
+
+.copilot
+.vscode
+
+# Python
+
+.python-version
+.venv
+
+__pycache__
+*.py[cod]
+*$py.class
+.mypy_cache
+.ruff_cache
+.vscode
+
+.coverage
+.env
+.pytest_cache
+dev.db
+htmlcov
+test-reports

@@ -1,0 +1,33 @@
+{
+    "name": "hipeac-mcp",
+    "description": "Model Context Protocol server for HiPEAC network analysis",
+    "keywords": [
+        "mcp",
+        "hipeac",
+        "ai",
+        "research"
+    ],
+    "website": "https://www.hipeac.net",
+    "repository": "https://github.com/hipeac/hipeac-mcp",
+    "env": {
+        "DATABASE_URL": {
+            "description": "MySQL database connection string",
+            "required": true
+        },
+        "SENTRY_DSN": {
+            "description": "Sentry DSN for error tracking (optional)",
+            "required": false
+        }
+    },
+    "formation": {
+        "web": {
+            "quantity": 1,
+            "size": "basic"
+        }
+    },
+    "buildpacks": [
+        {
+            "url": "heroku/python"
+        }
+    ]
+}

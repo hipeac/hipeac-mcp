@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# Run commands in the uv virtual environment with .env file
+uv run --env-file .env "$@"

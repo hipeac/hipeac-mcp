@@ -1,0 +1,50 @@
+[project]
+name = "hipeac-mcp"
+version = "0.1.0"
+description = "A Model Context Protocol (MCP) server for HiPEAC."
+authors = [
+  {name = "Eneko Illarramendi", email = "eneko@illarra.com"}
+]
+license = {text = "MIT"}
+requires-python = "~=3.13.0"
+dependencies = [
+  "mcp",
+  "django",
+  "gunicorn",
+  "mysqlclient",
+  "pydantic",
+  "sentry-sdk[mcp]",
+  "uvicorn-worker",
+]
+
+[dependency-groups]
+dev = [
+  "deadcode",
+  "pytest",
+  "pytest-cov",
+  "ruff",
+]
+
+[tool.coverage.run]
+omit = [
+  "*/tests/**",
+]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "raise NotImplementedError", "def __repr__", "if TYPE_CHECKING:"]
+show_missing = true
+
+[tool.pytest.ini_options]
+addopts = "--cov=hipeac_mcp"
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "UP", "B", "SIM", "I"]
+ignore = ["SIM105"]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
