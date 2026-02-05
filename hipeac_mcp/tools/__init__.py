@@ -1,6 +1,12 @@
-"""MCP tools for HiPEAC member analysis."""
+"""MCP tools for HiPEAC analysis and search."""
 
-from . import members, metadata
+from .members import search_members
+from .metadata import get_metadata
+from .vision import search_vision
 
 
-__all__ = ["members", "metadata"]
+__all__ = [
+    "get_metadata",
+    "search_members",
+    "search_vision",
+]

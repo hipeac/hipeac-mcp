@@ -5,7 +5,9 @@ Endpoint: POST / (at root)
 """
 
 from django.db import close_old_connections
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
+from starlette.responses import Response
 
 from . import mcp
 
@@ -20,7 +22,7 @@ class DatabaseConnectionMiddleware(BaseHTTPMiddleware):
     We also close connections before each request to ensure fresh connections.
     """
 
-    async def dispatch(self, request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process request with proper database connection lifecycle.
 
         :param request: The incoming request.
@@ -32,6 +34,9 @@ class DatabaseConnectionMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             return response
+        except Exception:
+            close_old_connections()
+            raise
         finally:
             close_old_connections()
 

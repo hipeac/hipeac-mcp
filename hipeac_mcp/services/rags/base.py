@@ -1,0 +1,189 @@
+"""Base RAG service with FAISS vector storage."""
+
+import json
+import logging
+import time
+from pathlib import Path
+from typing import Any, cast
+
+import faiss  # type: ignore[import-untyped]
+import numpy as np
+from django.conf import settings
+
+from hipeac_mcp.services.embeddings import get_embedding_provider
+
+
+logger = logging.getLogger(__name__)
+
+type MetadataStore = dict[str, list[str | dict[str, str]]]
+
+
+class BaseRagService:
+    """Base class for RAG services using FAISS for vector storage."""
+
+    # Must be defined by subclasses
+    COLLECTION_NAME: str | None = None
+    COLLECTION_DESCRIPTION: str | None = None
+
+    # Class-level cache for indices
+    _cache: dict[str, tuple[faiss.IndexFlatIP | None, MetadataStore, float]] = {}
+
+    def __init__(self):
+        """Initialize the RAG service with FAISS index and embedding provider."""
+        if not self.COLLECTION_NAME:
+            raise NotImplementedError("Subclasses must define COLLECTION_NAME")
+
+        self.embedding_provider = get_embedding_provider()
+        self.embedding_dimension: int | None = None
+        self.index: faiss.IndexFlatIP | None = None
+        self.metadata_store: MetadataStore = {"ids": [], "documents": [], "metadatas": []}
+
+        self.index_dir = Path(settings.FAISS_INDEX_PATH)
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+        self.index_path = self.index_dir / f"{self.COLLECTION_NAME}.index"
+        self.metadata_path = self.index_dir / f"{self.COLLECTION_NAME}.json"
+
+        self._load_or_create_index()
+
+    def _load_or_create_index(self) -> None:
+        """Load existing FAISS index or create a new one."""
+        if self.COLLECTION_NAME in self._cache:
+            self.index, self.metadata_store, _ = self._cache[self.COLLECTION_NAME]
+            if self.index is not None:
+                self.embedding_dimension = self.index.d
+            logger.info(f"Used cached index '{self.COLLECTION_NAME}'")
+            return
+
+        if self.index_path.exists() and self.metadata_path.exists():
+            self.index = cast(faiss.IndexFlatIP, faiss.read_index(str(self.index_path)))  # type: ignore[no-untyped-call]
+            with open(self.metadata_path) as f:
+                self.metadata_store = json.load(f)
+            self.embedding_dimension = self.index.d
+            logger.info(f"Loaded existing index '{self.COLLECTION_NAME}' with {self.index.ntotal} vectors")
+        else:
+            self.index = None
+            self.metadata_store = {"ids": [], "documents": [], "metadatas": []}
+            logger.info(f"Created new index '{self.COLLECTION_NAME}'")
+
+        self._update_cache()
+
+    def _update_cache(self) -> None:
+        """Update the in-memory cache with current index state."""
+        if self.COLLECTION_NAME:
+            self._cache[self.COLLECTION_NAME] = (self.index, self.metadata_store, time.time())
+
+    def _save_index(self) -> None:
+        """Save FAISS index and metadata to disk."""
+        if self.index:
+            faiss.write_index(self.index, str(self.index_path))  # type: ignore[no-untyped-call]
+        with open(self.metadata_path, "w") as f:
+            json.dump(self.metadata_store, f)
+
+        self._update_cache()
+
+    async def generate_embedding(self, text: str) -> list[float]:
+        """Generate embedding for given text.
+
+        :param text: Text to embed.
+        :returns: List of float values representing the embedding.
+        """
+        return await self.embedding_provider.generate_embedding(text)
+
+    async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Search for documents using semantic similarity.
+
+        :param query: Search query string.
+        :param limit: Maximum number of results to return.
+        :returns: List of search result dictionaries.
+        """
+        if self.index is None:
+            return []
+
+        try:
+            query_embedding = await self.generate_embedding(query)
+            query_vector = np.array([query_embedding], dtype=np.float32)
+            faiss.normalize_L2(query_vector)  # type: ignore[no-untyped-call]
+
+            distances, indices = self.index.search(query_vector, min(limit, self.index.ntotal))  # type: ignore[union-attr]
+            distances = cast(np.ndarray, distances)
+            indices = cast(np.ndarray, indices)
+
+            formatted_results: list[dict[str, Any]] = []
+
+            for i, idx in enumerate(indices[0]):
+                if idx == -1:
+                    continue
+
+                formatted_results.append(
+                    {
+                        "id": self.metadata_store["ids"][idx],
+                        "content": self.metadata_store["documents"][idx],
+                        "metadata": self.metadata_store["metadatas"][idx],
+                        "similarity_score": float(distances[0][i]),
+                    }
+                )
+
+            return formatted_results
+
+        except Exception as e:
+            logger.error(f"Error searching: {e}")
+            return []
+
+    def upsert_documents(
+        self, ids: list[str], documents: list[str], embeddings: list[list[float]], metadatas: list[dict[str, Any]]
+    ) -> bool:
+        """Upsert documents into the FAISS index.
+
+        :param ids: List of document IDs.
+        :param documents: List of document texts.
+        :param embeddings: List of embedding vectors.
+        :param metadatas: List of metadata dictionaries.
+        :returns: True if successful, False otherwise.
+        """
+        try:
+            vectors = np.array(embeddings, dtype=np.float32)
+
+            if self.index is None:
+                self.embedding_dimension = vectors.shape[1]
+                self.index = faiss.IndexFlatIP(self.embedding_dimension)
+                logger.info(f"Initialized FAISS index with dimension {self.embedding_dimension}")
+
+            faiss.normalize_L2(vectors)  # type: ignore[no-untyped-call]
+
+            for i, doc_id in enumerate(ids):
+                if doc_id in self.metadata_store["ids"]:
+                    idx = self.metadata_store["ids"].index(doc_id)
+                    self.metadata_store["documents"][idx] = documents[i]
+                    self.metadata_store["metadatas"][idx] = metadatas[i]
+                else:
+                    self.metadata_store["ids"].append(doc_id)
+                    self.metadata_store["documents"].append(documents[i])
+                    self.metadata_store["metadatas"].append(metadatas[i])
+                    self.index.add(vectors[i : i + 1])  # type: ignore[union-attr]
+
+            self._save_index()
+            return True
+
+        except Exception as e:
+            logger.error(f"Error upserting documents: {e}")
+            return False
+
+    def reset_index(self) -> bool:
+        """Reset the entire index.
+
+        :returns: True if successful.
+        """
+        try:
+            if self.embedding_dimension:
+                self.index = faiss.IndexFlatIP(self.embedding_dimension)
+            else:
+                self.index = None
+            self.metadata_store = {"ids": [], "documents": [], "metadatas": []}
+            self._save_index()
+            logger.info(f"Index '{self.COLLECTION_NAME}' reset successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error resetting index '{self.COLLECTION_NAME}': {e}")
+            return False

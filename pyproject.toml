@@ -8,10 +8,14 @@ authors = [
 license = {text = "MIT"}
 requires-python = "~=3.13.0"
 dependencies = [
-  "mcp",
   "django",
+  "faiss-cpu",
   "gunicorn",
+  "mcp",
   "mysqlclient",
+  "numpy",
+  "openai",
+  "polars",
   "pydantic",
   "sentry-sdk[mcp]",
   "uvicorn-worker",
@@ -20,6 +24,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "deadcode",
+  "memray",
   "pytest",
   "pytest-asyncio",
   "pytest-cov",

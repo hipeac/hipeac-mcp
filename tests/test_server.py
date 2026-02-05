@@ -18,7 +18,7 @@ class TestServerInitialization:
         tool_names = [tool.name for tool in mcp._tool_manager._tools.values()]
         assert "get_metadata" in tool_names
         assert "search_members" in tool_names
-        assert len(tool_names) == 2
+        assert len(tool_names) == 3
 
     def test_resources_registered(self):
         """Test that no resources are registered (moved to tools)."""

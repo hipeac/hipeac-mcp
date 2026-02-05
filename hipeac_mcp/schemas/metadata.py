@@ -1,16 +1,11 @@
-"""SQLModel schemas for read-only async database operations.
+"""Pydantic schemas for HiPEAC metadata."""
 
-This module provides SQLModel schemas that map to existing database tables.
-These are used for ORM queries via SQLAlchemy/aiomysql in read-only mode.
-No table creation occurs - we only read from existing tables.
-"""
-
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class MetadataType(str, Enum):
+class MetadataType(StrEnum):
     """Metadata type enumeration."""
 
     APPLICATION_AREA = "application_area"
@@ -25,15 +20,7 @@ class MetadataItem(BaseModel):
     value: str
 
 
-class MetadataCategory(BaseModel):
-    """A category of metadata items."""
-
-    title: str
-    description: str
-    items: list[MetadataItem]
-
-
-class MembershipType(str, Enum):
+class MembershipType(StrEnum):
     """Membership type enumeration."""
 
     MEMBER = "member"

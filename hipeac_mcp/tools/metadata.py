@@ -1,12 +1,12 @@
-"""MCP Tools for searching and analyzing HiPEAC members.
+"""MCP Tool for retrieving HiPEAC metadata.
 
-These tools provide intelligent search and discovery of network members
-based on research interests, location, and institutional affiliation.
+Provides structured metadata used by other tools in the MCP server.
 """
 
 from mcp.types import ToolAnnotations
 
 from hipeac_mcp import mcp
+from hipeac_mcp.db import ensure_connection_async
 
 from ..models import Metadata
 from ..schemas.metadata import (
@@ -25,8 +25,10 @@ async def get_metadata() -> MetadataResponse:
     Returns all metadata categories including topics, application areas,
     institution types, and membership types. Used by other tools in the MCP server.
 
-    :returns: Structured metadata with all categories.
+    :returns: Structured metadata with all categories
     """
+    await ensure_connection_async()
+
     type_mapping = {
         MetadataType.TOPIC.value: "topics",
         MetadataType.APPLICATION_AREA.value: "application_areas",

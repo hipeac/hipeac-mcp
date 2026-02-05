@@ -10,6 +10,7 @@ from mcp.types import ToolAnnotations
 from pydantic import HttpUrl
 
 from hipeac_mcp import mcp
+from hipeac_mcp.db import ensure_connection_async
 
 from ..models import RelApplicationArea, RelInstitution, RelTopic, User
 from ..schemas.members import Institution, Member, MemberSearchResponse
@@ -24,6 +25,8 @@ async def _ensure_metadata_cache():
     """Ensure metadata cache is populated."""
     if _metadata_cache:
         return
+
+    await ensure_connection_async()
 
     from ..models import Metadata
 
@@ -69,6 +72,8 @@ async def search_members(
     :param limit: Maximum number of results to return (max: 100).
     :returns: Structured search results with member profiles.
     """
+    await ensure_connection_async()
+
     user_ct = await ContentType.objects.aget(app_label="hipeac", model="user")
     queryset = User.objects.filter(memberships__end_date__isnull=True).distinct()
 

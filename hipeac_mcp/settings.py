@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 db = urlparse(os.environ.get("DATABASE_URL"))
 
-DATABASES = {
+DATABASES = {  # type: ignore
     "default": {
         "ENGINE": "django.db.backends.mysql",
         "NAME": db.path[1:],
@@ -23,8 +23,11 @@ DATABASES = {
             "ssl_mode": "REQUIRED",
             "init_command": "SET SESSION TRANSACTION READ ONLY; SET sql_mode='STRICT_TRANS_TABLES';",
             "connect_timeout": 3,
+            "read_timeout": 30,  # Prevent timeout during long AI operations
+            "write_timeout": 30,
         },
         "CONN_MAX_AGE": 0,  # Don't persist connections with sync_to_async thread pools
+        "CONN_HEALTH_CHECKS": True,  # Django 4.1+ - verify connection before each query
     }
 }
 
@@ -41,3 +44,11 @@ USE_TZ = True
 TIME_ZONE = "UTC"
 
 DATABASE_ROUTERS = ["hipeac_mcp.db.ReadOnlyRouter"]
+
+# AI and RAG Configuration
+# FAISS vector index storage path
+# In production (Dokku), use /storage/faiss (persistent across deployments)
+# In development, use .faiss in project root
+FAISS_INDEX_PATH = os.environ.get(
+    "HIPEAC_FAISS_INDEX_PATH", "/storage/faiss" if os.path.exists("/storage") else ".faiss"
+)

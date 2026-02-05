@@ -20,6 +20,7 @@ __pycache__
 
 .coverage
 .env
+.faiss
 .pytest_cache
 dev.db
 htmlcov

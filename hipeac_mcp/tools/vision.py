@@ -1,0 +1,87 @@
+"""MCP Tool for searching HiPEAC Vision documents."""
+
+import asyncio
+
+from mcp.types import ToolAnnotations
+
+from hipeac_mcp import mcp
+from hipeac_mcp.schemas.vision import VisionArticleResult, VisionSearchResponse
+from hipeac_mcp.services.rags import VisionRagService
+
+
+_service_cache: dict[int, VisionRagService] = {}
+
+
+def _get_service(year: int) -> VisionRagService:
+    """Get a cached VisionRagService for the given year.
+
+    :param year: Vision year.
+    :returns: Cached service instance.
+    """
+    if year not in _service_cache:
+        _service_cache[year] = VisionRagService(year=year)
+    return _service_cache[year]
+
+
+@mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
+async def search_vision(
+    query: str,
+    year: int | None = None,
+    years: list[int] | None = None,
+    limit: int = 4,
+) -> VisionSearchResponse:
+    """Search HiPEAC Vision strategic documents using semantic search.
+
+    Returns ranked articles with summaries and content previews.
+    The MCP client should synthesize insights from the returned data.
+
+    **Important — Query Optimization:**
+    This tool performs direct embedding-based vector search — there is no LLM
+    interpretation layer. You MUST rephrase the user's question into a concise,
+    keyword-rich search query optimized for semantic similarity matching.
+    For example:
+    - User asks: "What does HiPEAC think about the future of quantum computing?"
+    - Optimized query: "quantum computing roadmap challenges applications"
+    - User asks: "How should Europe prepare for edge AI?"
+    - Optimized query: "edge AI deployment strategy Europe infrastructure"
+
+    The HiPEAC Vision is a strategic research agenda for computing systems in Europe,
+    representing the collective expertise of Europe's leading computing researchers.
+
+    **Year-Specific Search:**
+    - year=2025: Search only Vision 2025 (default: latest)
+    - year=2024: Search only Vision 2024
+    - years=[2024, 2025]: Search multiple years and compare perspectives
+
+    **Use Cases:**
+    - Current Trends: "What are the emerging trends in AI accelerators?"
+    - Historical View: "What did Vision 2024 say about quantum computing?" (year=2024)
+    - Evolution: "How has the vision on sustainability evolved?" (years=[2023, 2024, 2025])
+    - Technology Adoption: "How should industry prepare for edge AI?"
+    - Policy Guidance: "What recommendations exist for HPC infrastructure?"
+
+    :param query: Natural language question or topic to search for.
+    :param year: Specific Vision year to search (default: 2025, latest).
+    :param years: List of years to search and compare (overrides year parameter).
+    :param limit: Maximum number of articles to return (default: 4, max: 5).
+    :returns: Structured search results with ranked articles.
+    """
+    actual_limit = min(limit, 5)
+
+    if years:
+        all_articles: list[VisionArticleResult] = []
+        results_per_year = await asyncio.gather(*[_get_service(y).search_articles(query, actual_limit) for y in years])
+
+        for response in results_per_year:
+            all_articles.extend(response.articles)
+
+        all_articles.sort(key=lambda a: a.similarity_score, reverse=True)
+
+        return VisionSearchResponse(
+            query=query,
+            total_results=len(all_articles[:actual_limit]),
+            articles=all_articles[:actual_limit],
+        )
+
+    search_year = year or 2025
+    return await _get_service(search_year).search_articles(query, actual_limit)

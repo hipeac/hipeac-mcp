@@ -253,5 +253,6 @@ For testing the SSE server locally:
 [github-tests]: https://github.com/hipeac/hipeac-mcp/actions?query=workflow%3Atests
 [github-tests-badge]: https://github.com/hipeac/hipeac-mcp/actions/workflows/tests.yml/badge.svg?branch=main
 [license-badge]: https://img.shields.io/badge/license-MIT-blue.svg
+
 [mcp]: https://github.com/modelcontextprotocol/python-sdk
 [uv]: https://docs.astral.sh/uv/
