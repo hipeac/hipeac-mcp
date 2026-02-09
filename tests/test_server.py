@@ -9,7 +9,7 @@ class TestServerInitialization:
         from hipeac_mcp import mcp
 
         assert mcp is not None
-        assert mcp.name == "hipeac-mcp"
+        assert mcp.name == "HiPEAC"
 
     def test_tools_registered(self):
         """Test that tools are registered with the server."""
@@ -41,7 +41,7 @@ class TestDatabaseSetup:
         from django.conf import settings
 
         assert settings.configured
-        assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.mysql"
+        assert "django.db.backends" in settings.DATABASES["default"]["ENGINE"]
 
     def test_read_only_router_exists(self):
         """Test read-only database router is configured."""

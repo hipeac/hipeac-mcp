@@ -8,28 +8,37 @@ import os
 from urllib.parse import urlparse
 
 
-db = urlparse(os.environ.get("DATABASE_URL"))
+_database_url = os.environ.get("DATABASE_URL")
 
-DATABASES = {  # type: ignore
-    "default": {
-        "ENGINE": "django.db.backends.mysql",
-        "NAME": db.path[1:],
-        "USER": db.username,
-        "PASSWORD": db.password,
-        "HOST": db.hostname,
-        "PORT": db.port,
-        "OPTIONS": {
-            "charset": "utf8mb4",
-            "ssl_mode": "REQUIRED",
-            "init_command": "SET SESSION TRANSACTION READ ONLY; SET sql_mode='STRICT_TRANS_TABLES';",
-            "connect_timeout": 3,
-            "read_timeout": 30,  # Prevent timeout during long AI operations
-            "write_timeout": 30,
-        },
-        "CONN_MAX_AGE": 0,  # Don't persist connections with sync_to_async thread pools
-        "CONN_HEALTH_CHECKS": True,  # Django 4.1+ - verify connection before each query
+if _database_url:
+    db = urlparse(_database_url)
+    DATABASES = {  # type: ignore
+        "default": {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": db.path[1:],
+            "USER": db.username,
+            "PASSWORD": db.password,
+            "HOST": db.hostname,
+            "PORT": db.port,
+            "OPTIONS": {
+                "charset": "utf8mb4",
+                "ssl_mode": "REQUIRED",
+                "init_command": "SET SESSION TRANSACTION READ ONLY; SET sql_mode='STRICT_TRANS_TABLES';",
+                "connect_timeout": 3,
+                "read_timeout": 30,  # Prevent timeout during long AI operations
+                "write_timeout": 30,
+            },
+            "CONN_MAX_AGE": 0,  # Don't persist connections with sync_to_async thread pools
+            "CONN_HEALTH_CHECKS": True,  # Django 4.1+ - verify connection before each query
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
