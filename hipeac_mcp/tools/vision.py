@@ -2,10 +2,12 @@
 
 import asyncio
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from hipeac_mcp import mcp
 from hipeac_mcp.schemas.vision import VisionArticleResult, VisionSearchResponse
+from hipeac_mcp.services.analytics import track_usage
 from hipeac_mcp.services.rags import VisionRagService
 
 
@@ -24,11 +26,13 @@ def _get_service(year: int) -> VisionRagService:
 
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
+@track_usage
 async def search_vision(
     query: str,
     year: int | None = None,
     years: list[int] | None = None,
     limit: int = 4,
+    ctx: Context = None,
 ) -> VisionSearchResponse:
     """Search HiPEAC Vision strategic documents using semantic search.
 

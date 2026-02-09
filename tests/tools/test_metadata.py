@@ -26,13 +26,14 @@ class TestMetadataTool:
         assert callable(get_metadata)
 
     def test_get_metadata_no_parameters(self):
-        """Test get_metadata accepts no parameters (always returns all)."""
+        """Test get_metadata has no required parameters (ctx is injected by FastMCP)."""
         from hipeac_mcp.tools.metadata import get_metadata
 
         sig = inspect.signature(get_metadata)
 
-        # Should have no required parameters
-        assert len(sig.parameters) == 0
+        # All parameters should have defaults (ctx is injected)
+        required = [p for p in sig.parameters.values() if p.default is inspect.Parameter.empty]
+        assert len(required) == 0
 
     @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.metadata.Metadata")

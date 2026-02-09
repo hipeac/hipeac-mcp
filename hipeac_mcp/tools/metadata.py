@@ -3,10 +3,12 @@
 Provides structured metadata used by other tools in the MCP server.
 """
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from hipeac_mcp import mcp
 from hipeac_mcp.db import ensure_connection_async
+from hipeac_mcp.services.analytics import track_usage
 
 from ..models import Metadata
 from ..schemas.metadata import (
@@ -19,7 +21,8 @@ from ..schemas.metadata import (
 
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
-async def get_metadata() -> MetadataResponse:
+@track_usage
+async def get_metadata(ctx: Context = None) -> MetadataResponse:
     """Get available metadata as structured JSON.
 
     Returns all metadata categories including topics, application areas,

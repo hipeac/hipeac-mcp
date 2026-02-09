@@ -6,11 +6,13 @@ based on research interests, location, and institutional affiliation.
 
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 from pydantic import HttpUrl
 
 from hipeac_mcp import mcp
 from hipeac_mcp.db import ensure_connection_async
+from hipeac_mcp.services.analytics import track_usage
 
 from ..models import RelApplicationArea, RelInstitution, RelTopic, User
 from ..schemas.members import Institution, Member, MemberSearchResponse
@@ -44,6 +46,7 @@ def _get_metadata_item(type_key: str, item_id: int) -> MetadataItem | None:
 
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
+@track_usage
 async def search_members(
     query: str | None = None,
     topic_ids: list[int] | None = None,
@@ -52,6 +55,7 @@ async def search_members(
     institution_type_ids: list[int] | None = None,
     membership_types: list[MembershipType] | None = None,
     limit: int = 20,
+    ctx: Context = None,
 ) -> MemberSearchResponse:
     """Search HiPEAC network members by research interests, location, and institution.
 

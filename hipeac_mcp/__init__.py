@@ -37,7 +37,6 @@ transport_security = TransportSecuritySettings(
 
 mcp = FastMCP(
     "HiPEAC",
-    stateless_http=True,
     streamable_http_path="/",
     instructions=server_instructions,
     transport_security=transport_security,
