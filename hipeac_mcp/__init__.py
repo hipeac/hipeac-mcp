@@ -7,18 +7,26 @@ import sentry_sdk
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from sentry_sdk.integrations.logging import LoggingIntegration
-from sentry_sdk.integrations.openai_agents import OpenAIAgentsIntegration
 
 from .db import setup_django
 
+
+# Disable OpenAI Agents integration: openai-agents is a dev-only dependency
+# and the Sentry integration is incompatible with the installed version.
+_disabled = []
+
+try:
+    from sentry_sdk.integrations.openai_agents import OpenAIAgentsIntegration
+
+    _disabled.append(OpenAIAgentsIntegration)
+except Exception:
+    pass
 
 sentry_sdk.init(
     dsn=os.environ.get("SENTRY_DSN", None),
     release=os.environ.get("GIT_REV", None),
     enable_logs=True,
-    disabled_integrations=[
-        OpenAIAgentsIntegration,
-    ],
+    disabled_integrations=_disabled,
     integrations=[
         LoggingIntegration(
             sentry_logs_level=logging.WARNING,

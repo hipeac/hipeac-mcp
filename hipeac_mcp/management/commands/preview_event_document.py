@@ -25,12 +25,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """Add command arguments.
 
-        :param parser: ArgumentParser instance
+        :param parser: ArgumentParser instance.
         """
-        parser.add_argument(
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument(
+            "--event-id",
+            type=int,
+            help="Event ID (e.g., 6816)",
+        )
+        group.add_argument(
             "--slug",
             type=str,
-            required=True,
             help="Event slug (e.g., acaces-2025)",
         )
         parser.add_argument(
@@ -57,16 +62,20 @@ class Command(BaseCommand):
     async def async_handle(self, **options):
         """Async implementation of document generation.
 
-        :param options: Command options
+        :param options: Command options.
         """
-        slug = options["slug"]
+        event_id = options.get("event_id")
+        slug = options.get("slug")
         year = options.get("year")
         output_path = options.get("output")
 
-        self.stdout.write(self.style.SUCCESS(f"Generating document for event: {slug}"))
+        identifier = str(event_id) if event_id else slug
+        self.stdout.write(self.style.SUCCESS(f"Generating document for event: {identifier}"))
 
         try:
-            if year:
+            if event_id:
+                event = await sync_to_async(Event.objects.get)(id=event_id)
+            elif year:
                 event = await sync_to_async(Event.objects.get)(slug=slug, start_date__year=year)
             else:
                 event = await sync_to_async(Event.objects.get)(slug=slug)

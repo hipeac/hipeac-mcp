@@ -1,7 +1,7 @@
 """Background tasks using pure Huey with Redis.
 
-Provides a periodic task that checks for Vision reindex signals pushed
-by hipeac-redux and triggers FAISS reindexing when needed.
+Provides periodic tasks that check for reindex signals pushed
+by hipeac-redux and trigger FAISS reindexing when needed.
 """
 
 import asyncio
@@ -13,9 +13,10 @@ from asgiref.sync import sync_to_async
 from huey import RedisHuey, crontab  # type: ignore[import-untyped]
 
 from .db import ensure_connection_async, setup_django
+from .models.events import Event
 from .models.vision import VisionArticle
 from .redis import get_redis_client
-from .services.rags import VisionRagService
+from .services.rags import EventRagService, VisionRagService
 
 
 setup_django()
@@ -23,58 +24,81 @@ setup_django()
 logger = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
-REINDEX_KEY = "hipeac:mcp:reindex:vision"
+VISION_REINDEX_KEY = "hipeac:mcp:reindex:vision"
+EVENT_REINDEX_KEY = "hipeac:mcp:reindex:event"
 
 huey = RedisHuey("hipeac-mcp", url=f"{REDIS_URL}/0")
 
 
-@huey.periodic_task(crontab(minute="*/5"))
-def check_reindex_signals() -> dict[str, list[int]]:
-    """Check Redis for Vision reindex signals and trigger reindexing.
+def _drain_redis_list(key: str) -> set[int]:
+    """Drain a Redis list and return unique integer IDs.
 
-    Signals are pushed by hipeac-redux when VisionArticle content changes.
-    Each signal is a JSON object with a ``year`` field indicating which
-    Vision year needs reindexing.
-
-    :returns: Dictionary with lists of reindexed and failed years.
+    :param key: Redis list key to drain.
+    :returns: Set of unique integer IDs from the JSON signals.
     """
     client = get_redis_client()
 
     if client is None:
-        return {"reindexed": [], "failed": []}
+        return set()
 
-    years_to_reindex: set[int] = set()
+    ids: set[int] = set()
 
     while True:
-        raw: str | None = client.lpop(REINDEX_KEY)  # type: ignore[no-untyped-call]
+        raw: str | None = client.lpop(key)  # type: ignore[no-untyped-call]
         if raw is None:
             break
         try:
             signal = json.loads(raw)
-            years_to_reindex.add(int(signal["year"]))
+            value = signal.get("year") or signal.get("event_id")
+            if value is not None:
+                ids.add(int(value))
         except json.JSONDecodeError, KeyError, ValueError:
-            logger.warning(f"Invalid reindex signal: {raw}")
+            logger.warning(f"Invalid reindex signal from {key}: {raw}")
 
-    if not years_to_reindex:
-        return {"reindexed": [], "failed": []}
+    return ids
 
-    logger.info(f"Reindex signals received for years: {years_to_reindex}")
 
+@huey.periodic_task(crontab(minute="*/5"))
+def check_reindex_signals() -> dict[str, list[int]]:
+    """Check Redis for reindex signals and trigger reindexing.
+
+    Signals are pushed by hipeac-redux when content changes or when
+    an admin triggers a manual reindex. Handles both Vision years
+    and Event IDs.
+
+    :returns: Dictionary with lists of reindexed and failed IDs.
+    """
     reindexed: list[int] = []
     failed: list[int] = []
 
-    for year in sorted(years_to_reindex):
-        try:
-            asyncio.run(_reindex_year(year))
-            reindexed.append(year)
-        except Exception:
-            logger.exception(f"Failed to reindex Vision {year}")
-            failed.append(year)
+    vision_years = _drain_redis_list(VISION_REINDEX_KEY)
+
+    if vision_years:
+        logger.info(f"Vision reindex signals received for years: {vision_years}")
+        for year in sorted(vision_years):
+            try:
+                asyncio.run(_reindex_vision_year(year))
+                reindexed.append(year)
+            except Exception:
+                logger.exception(f"Failed to reindex Vision {year}")
+                failed.append(year)
+
+    event_ids = _drain_redis_list(EVENT_REINDEX_KEY)
+
+    if event_ids:
+        logger.info(f"Event reindex signals received for IDs: {event_ids}")
+        for event_id in sorted(event_ids):
+            try:
+                asyncio.run(_reindex_event(event_id))
+                reindexed.append(event_id)
+            except Exception:
+                logger.exception(f"Failed to reindex event {event_id}")
+                failed.append(event_id)
 
     return {"reindexed": reindexed, "failed": failed}
 
 
-async def _reindex_year(year: int) -> None:
+async def _reindex_vision_year(year: int) -> None:
     """Reindex all Vision articles for a given year.
 
     Fetches articles from the database, generates embeddings via OpenAI,
@@ -101,3 +125,26 @@ async def _reindex_year(year: int) -> None:
             logger.exception(f"Failed to index article {article.slug}")
 
     logger.info(f"Vision {year} reindex complete: {indexed}/{total} articles indexed")
+
+
+async def _reindex_event(event_id: int) -> None:
+    """Reindex all activities for a given event.
+
+    Fetches the event from the database, generates documents and embeddings,
+    and rebuilds the FAISS index.
+
+    :param event_id: Event primary key to reindex.
+    """
+    await ensure_connection_async()
+
+    event = await sync_to_async(Event.objects.get)(id=event_id)
+    service = EventRagService(event_id=event_id)
+    service.reset_index()
+
+    logger.info(f"Reindexing event {event_id} ({event.name})")
+    success = await service.index_event(event)
+
+    if success:
+        logger.info(f"Event {event_id} reindex complete")
+    else:
+        raise RuntimeError(f"Event {event_id} reindex failed")

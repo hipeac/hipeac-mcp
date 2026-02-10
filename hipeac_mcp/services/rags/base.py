@@ -97,7 +97,7 @@ class BaseRagService:
         :param limit: Maximum number of results to return.
         :returns: List of search result dictionaries.
         """
-        if self.index is None:
+        if self.index is None or self.index.ntotal == 0:  # type: ignore[union-attr]
             return []
 
         try:
@@ -170,7 +170,11 @@ class BaseRagService:
             return False
 
     def reset_index(self) -> bool:
-        """Reset the entire index.
+        """Reset the index in memory without saving to disk.
+
+        The cleared index is only persisted when ``upsert_documents``
+        writes new data. This prevents a failed reindex from leaving
+        an empty FAISS file on disk (losing the previous good index).
 
         :returns: True if successful.
         """
@@ -180,8 +184,8 @@ class BaseRagService:
             else:
                 self.index = None
             self.metadata_store = {"ids": [], "documents": [], "metadatas": []}
-            self._save_index()
-            logger.info(f"Index '{self.COLLECTION_NAME}' reset successfully")
+            self._update_cache()
+            logger.info(f"Index '{self.COLLECTION_NAME}' reset in memory")
             return True
 
         except Exception as e:

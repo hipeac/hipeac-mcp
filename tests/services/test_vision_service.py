@@ -220,14 +220,16 @@ class TestSearch:
             },
         ]
 
-        with patch.object(VisionRagService, "search", wraps=service.search):
-            with patch(
+        with (
+            patch.object(VisionRagService, "search", wraps=service.search),
+            patch(
                 "hipeac_mcp.services.rags.base.BaseRagService.search",
                 new_callable=AsyncMock,
                 return_value=chunk_results,
-            ):
-                with patch.object(service, "_enrich_from_database", new_callable=AsyncMock):
-                    results = await service.search("artificial intelligence", limit=5)
+            ),
+            patch.object(service, "_enrich_from_database", new_callable=AsyncMock),
+        ):
+            results = await service.search("artificial intelligence", limit=5)
 
         assert len(results) == 1
         assert results[0]["id"] == "ai"
@@ -254,11 +256,15 @@ class TestSearch:
             },
         ]
 
-        with patch(
-            "hipeac_mcp.services.rags.base.BaseRagService.search", new_callable=AsyncMock, return_value=chunk_results
+        with (
+            patch(
+                "hipeac_mcp.services.rags.base.BaseRagService.search",
+                new_callable=AsyncMock,
+                return_value=chunk_results,
+            ),
+            patch.object(service, "_enrich_from_database", new_callable=AsyncMock),
         ):
-            with patch.object(service, "_enrich_from_database", new_callable=AsyncMock):
-                results = await service.search("test", limit=1)
+            results = await service.search("test", limit=1)
 
         assert results[0]["similarity_score"] == pytest.approx(0.8)
 

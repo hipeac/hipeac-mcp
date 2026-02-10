@@ -1,10 +1,41 @@
-"""Event models for RAG service (read-only)."""
+"""Event models for RAG service (read-only).
+
+Maps to the production database tables used by the HiPEAC platform.
+All models are unmanaged (``managed = False``) — they only read data.
+
+Key schema notes:
+
+- Users live in ``hipeac_user``, not ``auth_user``.
+- Activity–User relationships use the generic ``hipeac_rel_users`` table
+  (``content_type_id`` + ``object_id``), not a dedicated join table.
+- User–Institution relationships use ``hipeac_rel_institutions``
+  (same generic-relation pattern); there is no FK on the user row.
+- ``hipeac_place`` has no latitude / longitude columns.
+- ``hipeac_institution`` uses ``colloquial_name``, not ``short_name``.
+"""
 
 from django.db import models
 
+from hipeac_mcp.db import get_content_type_id
+
+
+def activity_ct_id() -> int:
+    """Return the ``content_type_id`` for Activity."""
+    return get_content_type_id("hipeac", "activity")
+
+
+def event_ct_id() -> int:
+    """Return the ``content_type_id`` for Event."""
+    return get_content_type_id("hipeac", "event")
+
+
+def user_ct_id() -> int:
+    """Return the ``content_type_id`` for User."""
+    return get_content_type_id("hipeac", "user")
+
 
 class Event(models.Model):
-    """HiPEAC Event (ACACES, Conference, CSW) - read-only."""
+    """HiPEAC Event (ACACES, Conference, CSW) — read-only."""
 
     ACACES = "acaces"
     CONFERENCE = "conference"
@@ -17,6 +48,7 @@ class Event(models.Model):
     )
 
     type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    is_virtual = models.BooleanField(default=False)
     slug = models.SlugField(max_length=100, unique=True)
     city = models.CharField(max_length=100, blank=True)
     country = models.CharField(max_length=2, blank=True)
@@ -72,7 +104,7 @@ class Event(models.Model):
 
 
 class RelatedPlace(models.Model):
-    """Generic place relationship - read-only."""
+    """Generic place relationship — read-only."""
 
     content_type_id = models.IntegerField()
     object_id = models.IntegerField()
@@ -86,14 +118,15 @@ class RelatedPlace(models.Model):
 
 
 class Place(models.Model):
-    """Physical location (venues, hotels) - read-only."""
+    """Physical location (venues, hotels) — read-only.
+
+    The production table has **no** latitude / longitude columns.
+    """
 
     name = models.CharField(max_length=200)
     address = models.CharField(max_length=250, blank=True)
     city = models.CharField(max_length=100, blank=True)
     country = models.CharField(max_length=2, blank=True)
-    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 
     class Meta:
         db_table = "hipeac_place"
@@ -103,15 +136,39 @@ class Place(models.Model):
         return self.name
 
 
+class Room(models.Model):
+    """Room within a venue — read-only.
+
+    Each room belongs to a :class:`Place`. Activities reference a room
+    via ``room_id``, which also implicitly identifies the venue.
+    """
+
+    place = models.ForeignKey(Place, related_name="rooms", on_delete=models.DO_NOTHING)
+    name = models.CharField(max_length=190)
+    max_capacity = models.PositiveSmallIntegerField(default=0)
+    position = models.PositiveSmallIntegerField(default=0)
+    comments = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "hipeac_place_room"
+        ordering = ["place", "position"]
+        managed = False
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Activity(models.Model):
-    """Event activity (keynote, course, workshop, social) - read-only."""
+    """Event activity (keynote, course, workshop, social) — read-only."""
 
     event = models.ForeignKey(Event, related_name="activities", on_delete=models.DO_NOTHING)
+    room = models.ForeignKey(Room, related_name="activities", null=True, on_delete=models.DO_NOTHING)
     type_id = models.IntegerField()
     title = models.CharField(max_length=250)
     slug = models.SlugField(max_length=100)
     description = models.TextField(blank=True)
     summary = models.TextField(blank=True)
+    ai_summary = models.CharField(max_length=255, blank=True)
 
     extra_data = models.JSONField(default=dict)
 
@@ -129,7 +186,7 @@ class Activity(models.Model):
 
 
 class Session(models.Model):
-    """Activity session with specific time slot - read-only."""
+    """Activity session with specific time slot — read-only."""
 
     activity = models.ForeignKey(Activity, related_name="sessions", on_delete=models.DO_NOTHING)
     title = models.CharField(max_length=250, blank=True)
@@ -147,27 +204,54 @@ class Session(models.Model):
 
 
 class ActivityUser(models.Model):
-    """Activity-User relationship (speakers, organizers) - read-only."""
+    """Activity–User relationship via generic relation — read-only.
 
-    activity = models.ForeignKey(Activity, related_name="rel_users", on_delete=models.DO_NOTHING)
+    Lives in ``hipeac_rel_users`` with ``content_type_id = 39`` (Activity).
+    Roles are encoded as boolean flags in ``extra_data``::
+
+        {"is_speaker": true, "is_organizer": false, "is_main_speaker": false,
+         "session_ids": [1098]}
+
+    For ACACES courses ``extra_data`` is typically empty — users listed
+    against a course are instructors (teachers).
+    """
+
+    content_type_id = models.IntegerField()
+    object_id = models.IntegerField()
     user_id = models.IntegerField()
-
+    position = models.IntegerField(default=0)
     extra_data = models.JSONField(default=dict)
 
     class Meta:
-        db_table = "hipeac_rel_activity_user"
+        db_table = "hipeac_rel_users"
+        managed = False
+
+
+class RelatedInstitution(models.Model):
+    """User–Institution relationship via generic relation — read-only.
+
+    Lives in ``hipeac_rel_institutions`` with ``content_type_id = 25`` (User).
+    ``position = 0`` marks the primary affiliation.
+    """
+
+    content_type_id = models.IntegerField()
+    object_id = models.IntegerField()
+    institution_id = models.IntegerField()
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = "hipeac_rel_institutions"
         managed = False
 
 
 class EventUser(models.Model):
-    """User profile (for speakers) - read-only."""
+    """User profile (for speakers, organizers, teachers) — read-only."""
 
     first_name = models.CharField(max_length=150)
     last_name = models.CharField(max_length=150)
-    institution_id = models.IntegerField(null=True, blank=True)
 
     class Meta:
-        db_table = "auth_user"
+        db_table = "hipeac_user"
         managed = False
 
     def __str__(self) -> str:
@@ -180,10 +264,10 @@ class EventUser(models.Model):
 
 
 class EventInstitution(models.Model):
-    """Institution (for speaker affiliations) - read-only."""
+    """Institution (for speaker affiliations) — read-only."""
 
     name = models.CharField(max_length=200)
-    short_name = models.CharField(max_length=100, blank=True)
+    colloquial_name = models.CharField(max_length=100, blank=True)
     country = models.CharField(max_length=2, blank=True)
 
     class Meta:
@@ -191,11 +275,11 @@ class EventInstitution(models.Model):
         managed = False
 
     def __str__(self) -> str:
-        return self.short_name or self.name
+        return self.colloquial_name or self.name
 
 
 class EventMetadata(models.Model):
-    """Metadata (for activity types) - read-only."""
+    """Metadata (for activity types) — read-only."""
 
     SESSION_TYPE = "session_type"
 
