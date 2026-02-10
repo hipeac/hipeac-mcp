@@ -1,4 +1,8 @@
-"""Tests for VisionRagService static methods."""
+"""Tests for VisionRagService."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from hipeac_mcp.services.rags.vision.service import VisionRagService
 
@@ -119,3 +123,245 @@ class TestTruncateOnWordBoundary:
         cut_inside_link = text.index("[Ref]") + 5
         result = VisionRagService._truncate_on_word_boundary(text, cut_inside_link)
         assert "[Ref](https://example.com/very/long/path)" in result
+
+
+class TestAggregateChunks:
+    """Tests for _aggregate_chunks."""
+
+    @pytest.fixture
+    def service(self):
+        """Provide a VisionRagService with mocked dependencies.
+
+        :returns: A VisionRagService instance.
+        """
+        with patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"):
+            with patch.object(VisionRagService, "_load_or_create_index"):
+                return VisionRagService(year=2025)
+
+    def test_aggregates_chunks_by_slug(self, service):
+        """Chunks from the same article are grouped under one slug."""
+        base_results = [
+            {
+                "content": "Chunk 1",
+                "similarity_score": 0.9,
+                "metadata": {"slug": "ai", "title": "AI", "section": "Chapters"},
+            },
+            {
+                "content": "Chunk 2",
+                "similarity_score": 0.8,
+                "metadata": {"slug": "ai", "title": "AI", "section": "Chapters"},
+            },
+        ]
+        result = service._aggregate_chunks(base_results)
+
+        assert len(result) == 1
+        assert result["ai"]["chunks"] == ["Chunk 1", "Chunk 2"]
+
+    def test_keeps_highest_similarity_score(self, service):
+        """Aggregated article keeps the max similarity score across chunks."""
+        base_results = [
+            {"content": "A", "similarity_score": 0.7, "metadata": {"slug": "s", "title": "T", "section": "S"}},
+            {"content": "B", "similarity_score": 0.9, "metadata": {"slug": "s", "title": "T", "section": "S"}},
+        ]
+        result = service._aggregate_chunks(base_results)
+        assert result["s"]["similarity_score"] == 0.9
+
+    def test_distinct_slugs_are_separate(self, service):
+        """Different slugs produce separate entries."""
+        base_results = [
+            {"content": "A", "similarity_score": 0.8, "metadata": {"slug": "a", "title": "A", "section": "S"}},
+            {"content": "B", "similarity_score": 0.7, "metadata": {"slug": "b", "title": "B", "section": "S"}},
+        ]
+        result = service._aggregate_chunks(base_results)
+        assert len(result) == 2
+
+    def test_empty_results(self, service):
+        """Empty input returns empty dict."""
+        assert service._aggregate_chunks([]) == {}
+
+    def test_includes_vision_year_from_metadata(self, service):
+        """Vision year is taken from metadata when available."""
+        base_results = [
+            {
+                "content": "X",
+                "similarity_score": 0.5,
+                "metadata": {"slug": "x", "title": "X", "section": "S", "vision_year": 2024},
+            },
+        ]
+        result = service._aggregate_chunks(base_results)
+        assert result["x"]["vision_year"] == 2024
+
+
+class TestSearch:
+    """Tests for the search method."""
+
+    @pytest.fixture
+    def service(self):
+        """Provide a VisionRagService with mocked FAISS.
+
+        :returns: A VisionRagService instance.
+        """
+        with patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"):
+            with patch.object(VisionRagService, "_load_or_create_index"):
+                return VisionRagService(year=2025)
+
+    async def test_returns_aggregated_results(self, service):
+        """Search returns formatted, aggregated results."""
+        chunk_results = [
+            {
+                "content": "AI is cool.",
+                "similarity_score": 0.9,
+                "metadata": {"slug": "ai", "title": "AI", "section": "Chapters"},
+            },
+            {
+                "content": "AI is great.",
+                "similarity_score": 0.8,
+                "metadata": {"slug": "ai", "title": "AI", "section": "Chapters"},
+            },
+        ]
+
+        with patch.object(VisionRagService, "search", wraps=service.search):
+            with patch(
+                "hipeac_mcp.services.rags.base.BaseRagService.search",
+                new_callable=AsyncMock,
+                return_value=chunk_results,
+            ):
+                with patch.object(service, "_enrich_from_database", new_callable=AsyncMock):
+                    results = await service.search("artificial intelligence", limit=5)
+
+        assert len(results) == 1
+        assert results[0]["id"] == "ai"
+        assert "content_preview" in results[0]
+
+    async def test_returns_empty_on_error(self, service):
+        """Search returns empty list on exception."""
+        with patch(
+            "hipeac_mcp.services.rags.base.BaseRagService.search",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("FAISS error"),
+        ):
+            results = await service.search("query")
+
+        assert results == []
+
+    async def test_boosts_chapter_scores(self, service):
+        """Chapter articles get a 0.1 similarity boost."""
+        chunk_results = [
+            {
+                "content": "Content.",
+                "similarity_score": 0.7,
+                "metadata": {"slug": "ch", "title": "T", "section": "Chapters"},
+            },
+        ]
+
+        with patch(
+            "hipeac_mcp.services.rags.base.BaseRagService.search", new_callable=AsyncMock, return_value=chunk_results
+        ):
+            with patch.object(service, "_enrich_from_database", new_callable=AsyncMock):
+                results = await service.search("test", limit=1)
+
+        assert results[0]["similarity_score"] == pytest.approx(0.8)
+
+
+class TestSearchArticles:
+    """Tests for search_articles."""
+
+    @pytest.fixture
+    def service(self):
+        """Provide a VisionRagService with mocked dependencies.
+
+        :returns: A VisionRagService instance.
+        """
+        with patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"):
+            with patch.object(VisionRagService, "_load_or_create_index"):
+                return VisionRagService(year=2025)
+
+    async def test_returns_vision_search_response(self, service):
+        """search_articles wraps search results into VisionSearchResponse."""
+        search_results = [
+            {
+                "id": "quantum",
+                "title": "Quantum Computing",
+                "section": "Chapters",
+                "summary": "About quantum.",
+                "vision_year": 2025,
+                "similarity_score": 0.85,
+                "content_preview": "Quantum is...",
+                "references": [{"code": "Ref1", "text": "Citation"}],
+                "url": "/vision/2025/quantum/",
+            }
+        ]
+
+        with patch.object(service, "search", new_callable=AsyncMock, return_value=search_results):
+            response = await service.search_articles("quantum computing", limit=3)
+
+        assert response.query == "quantum computing"
+        assert response.total_results == 1
+        assert response.articles[0].id == "quantum"
+        assert response.articles[0].url == "https://www.hipeac.net/vision/2025/quantum/"
+
+    async def test_caps_limit_at_5(self, service):
+        """Limit is capped at 5."""
+        with patch.object(service, "search", new_callable=AsyncMock, return_value=[]) as mock_search:
+            await service.search_articles("query", limit=20)
+
+        mock_search.assert_called_once_with("query", 5)
+
+
+class TestIndexArticle:
+    """Tests for index_article."""
+
+    @pytest.fixture
+    def service(self):
+        """Provide a VisionRagService with mocked dependencies.
+
+        :returns: A VisionRagService instance.
+        """
+        with patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator") as mock_gen_cls:
+            with patch.object(VisionRagService, "_load_or_create_index"):
+                svc = VisionRagService(year=2025)
+                svc.generator = mock_gen_cls.return_value
+                return svc
+
+    async def test_indexes_article_chunks(self, service):
+        """Article chunks are embedded and upserted."""
+        article = MagicMock()
+        article.slug = "ai"
+        article.pk = 1
+        article.section.vision.year = 2025
+
+        service.generator.should_index_article.return_value = True
+        service.generator.generate_chunks.return_value = [
+            {"id": "2025_ai_chunk0", "content": "AI content.", "metadata": {"slug": "ai"}},
+        ]
+
+        with patch.object(service, "generate_embedding", new_callable=AsyncMock, return_value=[0.1, 0.2]):
+            with patch.object(service, "upsert_documents", return_value=True) as mock_upsert:
+                result = await service.index_article(article)
+
+        assert result is True
+        mock_upsert.assert_called_once()
+
+    async def test_skips_wrong_year(self, service):
+        """Articles from a different year are skipped."""
+        article = MagicMock()
+        article.slug = "old"
+        article.section.vision.year = 2023
+
+        service.generator.should_index_article.return_value = False
+
+        result = await service.index_article(article)
+        assert result is False
+
+    async def test_returns_false_on_error(self, service):
+        """Errors during indexing return False."""
+        article = MagicMock()
+        article.slug = "err"
+        article.pk = 2
+        article.section.vision.year = 2025
+
+        service.generator.should_index_article.return_value = True
+        service.generator.generate_chunks.side_effect = RuntimeError("parse error")
+
+        result = await service.index_article(article)
+        assert result is False

@@ -52,7 +52,7 @@ def check_reindex_signals() -> dict[str, list[int]]:
         try:
             signal = json.loads(raw)
             years_to_reindex.add(int(signal["year"]))
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except json.JSONDecodeError, KeyError, ValueError:
             logger.warning(f"Invalid reindex signal: {raw}")
 
     if not years_to_reindex:

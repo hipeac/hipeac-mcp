@@ -1,12 +1,19 @@
-"""Tests for the analytics service."""
+"""Tests for the analytics service.
+
+Uses structured FakeContext (dataclasses) instead of free-form MagicMock so that
+wrong attribute paths raise AttributeError rather than silently returning a mock.
+"""
 
 import json
 from enum import Enum
 from unittest.mock import MagicMock, patch
 
+import pytest
 from mcp.server.fastmcp import Context
 
 from hipeac_mcp.services.analytics import REDIS_KEY, _build_params, _extract_client_info, _serialize_param, track_usage
+
+from .conftest import FakeContext, FakeRequestContext, FakeSession, build_fake_context
 
 
 class Color(Enum):
@@ -17,19 +24,30 @@ class Color(Enum):
 class TestSerializeParam:
     """Tests for _serialize_param helper."""
 
-    def test_serializes_enum_to_value(self):
-        """Verify enum values are extracted."""
-        assert _serialize_param(Color.RED) == "red"
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (Color.RED, "red"),
+            (Color.BLUE, "blue"),
+            ("hello", "hello"),
+            (42, 42),
+            (None, None),
+            (3.14, 3.14),
+            (True, True),
+        ],
+        ids=["enum-red", "enum-blue", "string", "int", "none", "float", "bool"],
+    )
+    def test_scalars(self, value, expected):
+        """Verify scalar values are returned correctly."""
+        assert _serialize_param(value) == expected
 
     def test_serializes_list_of_enums(self):
         """Verify lists of enums are recursively serialized."""
         assert _serialize_param([Color.RED, Color.BLUE]) == ["red", "blue"]
 
-    def test_passes_through_plain_values(self):
-        """Verify strings, ints, etc. are returned as-is."""
-        assert _serialize_param("hello") == "hello"
-        assert _serialize_param(42) == 42
-        assert _serialize_param(None) is None
+    def test_serializes_mixed_list(self):
+        """Verify mixed lists (enums + plain values) are serialized recursively."""
+        assert _serialize_param([Color.RED, "plain"]) == ["red", "plain"]
 
 
 class TestBuildParams:
@@ -79,20 +97,29 @@ class TestBuildParams:
 
 
 class TestExtractClientInfo:
-    """Tests for _extract_client_info helper."""
+    """Tests for _extract_client_info helper.
 
-    def test_extracts_client_info_from_context(self):
+    Uses structured FakeContext so that wrong attribute paths (e.g. ``clientInfo``
+    instead of ``client_info``) raise AttributeError rather than silently succeeding.
+    """
+
+    def test_extracts_client_name_and_version(self):
         """Verify client name and version are extracted from Context."""
 
         async def my_tool(query: str, ctx: Context = None) -> None: ...
 
-        mock_ctx = MagicMock(spec=Context)
-        mock_ctx.client_id = "abc-123"
-        mock_ctx.request_context.session.client_params.clientInfo.name = "claude-desktop"
-        mock_ctx.request_context.session.client_params.clientInfo.version = "1.2.0"
-
-        result = _extract_client_info(my_tool, (), {"query": "test", "ctx": mock_ctx})
+        ctx = build_fake_context(client_name="claude-desktop", client_version="1.2.0", client_id="abc-123")
+        result = _extract_client_info(my_tool, (), {"query": "test", "ctx": ctx})
         assert result == {"client": "claude-desktop/1.2.0", "client_id": "abc-123"}
+
+    def test_extracts_client_name_without_version(self):
+        """Verify client name alone is returned when version is None."""
+
+        async def my_tool(ctx: Context = None) -> None: ...
+
+        ctx = build_fake_context(client_name="simple-client", client_version=None)
+        result = _extract_client_info(my_tool, (), {"ctx": ctx})
+        assert result == {"client": "simple-client", "client_id": None}
 
     def test_returns_none_without_context(self):
         """Verify None values are returned when no Context parameter exists."""
@@ -102,16 +129,28 @@ class TestExtractClientInfo:
         result = _extract_client_info(my_tool, (), {"query": "test"})
         assert result == {"client": None, "client_id": None}
 
-    def test_returns_none_when_client_info_missing(self):
-        """Verify graceful handling when session has no client_info."""
+    def test_returns_none_when_client_params_missing(self):
+        """Verify graceful handling when session has no client_params."""
 
         async def my_tool(ctx: Context = None) -> None: ...
 
-        mock_ctx = MagicMock(spec=Context)
-        mock_ctx.client_id = None
-        mock_ctx.request_context.session.client_params = None
+        ctx = FakeContext(
+            request_context=FakeRequestContext(session=FakeSession(client_params=None)),
+            client_id=None,
+        )
+        result = _extract_client_info(my_tool, (), {"ctx": ctx})
+        assert result == {"client": None, "client_id": None}
 
-        result = _extract_client_info(my_tool, (), {"ctx": mock_ctx})
+    def test_returns_none_when_session_missing(self):
+        """Verify graceful handling when request_context has no session."""
+
+        async def my_tool(ctx: Context = None) -> None: ...
+
+        ctx = FakeContext(
+            request_context=FakeRequestContext(session=None),
+            client_id=None,
+        )
+        result = _extract_client_info(my_tool, (), {"ctx": ctx})
         assert result == {"client": None, "client_id": None}
 
 
@@ -151,16 +190,37 @@ class TestTrackUsage:
         async def search_vision(query: str, ctx: Context = None) -> str:
             return "result"
 
-        mock_ctx = MagicMock(spec=Context)
-        mock_ctx.client_id = "session-42"
-        mock_ctx.request_context.session.client_params.clientInfo.name = "chatgpt"
-        mock_ctx.request_context.session.client_params.clientInfo.version = "2025.1"
-
-        await search_vision(query="AI", ctx=mock_ctx)
+        ctx = build_fake_context(client_name="chatgpt", client_version="2025.1", client_id="session-42")
+        await search_vision(query="AI", ctx=ctx)
 
         mock_push.assert_called_once_with(
             "search_vision", {"query": "AI"}, client="chatgpt/2025.1", client_id="session-42"
         )
+
+    @patch("hipeac_mcp.services.analytics._push_event")
+    async def test_propagates_exceptions(self, mock_push):
+        """Verify exceptions from the wrapped function are not swallowed."""
+
+        @track_usage
+        async def failing_tool() -> str:
+            raise ValueError("boom")
+
+        with pytest.raises(ValueError, match="boom"):
+            await failing_tool()
+
+        mock_push.assert_called_once()
+
+    @patch("hipeac_mcp.services.analytics._push_event")
+    async def test_preserves_function_metadata(self, mock_push):
+        """Verify @track_usage preserves the original function name and docstring."""
+
+        @track_usage
+        async def my_documented_tool(query: str) -> str:
+            """Tool docstring."""
+            return "ok"
+
+        assert my_documented_tool.__name__ == "my_documented_tool"
+        assert my_documented_tool.__doc__ == "Tool docstring."
 
 
 class TestPushEvent:

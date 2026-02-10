@@ -20,9 +20,10 @@ class TestCheckReindexSignals:
 
         assert result == {"reindexed": [], "failed": []}
 
+    @patch("hipeac_mcp.tasks._reindex_year", new_callable=MagicMock)
     @patch("hipeac_mcp.tasks.asyncio")
     @patch("hipeac_mcp.tasks.get_redis_client")
-    def test_deduplicates_year_signals(self, mock_get_client, mock_asyncio):
+    def test_deduplicates_year_signals(self, mock_get_client, mock_asyncio, mock_reindex):
         """Verify multiple signals for the same year trigger only one reindex."""
         mock_client = MagicMock()
         mock_client.lpop.side_effect = [
@@ -38,9 +39,10 @@ class TestCheckReindexSignals:
         assert mock_asyncio.run.call_count == 1
         assert result == {"reindexed": [2025], "failed": []}
 
+    @patch("hipeac_mcp.tasks._reindex_year", new_callable=MagicMock)
     @patch("hipeac_mcp.tasks.asyncio")
     @patch("hipeac_mcp.tasks.get_redis_client")
-    def test_processes_multiple_years(self, mock_get_client, mock_asyncio):
+    def test_processes_multiple_years(self, mock_get_client, mock_asyncio, mock_reindex):
         """Verify signals for different years trigger separate reindexes."""
         mock_client = MagicMock()
         mock_client.lpop.side_effect = [
@@ -55,9 +57,10 @@ class TestCheckReindexSignals:
         assert mock_asyncio.run.call_count == 2
         assert result == {"reindexed": [2024, 2025], "failed": []}
 
+    @patch("hipeac_mcp.tasks._reindex_year", new_callable=MagicMock)
     @patch("hipeac_mcp.tasks.asyncio")
     @patch("hipeac_mcp.tasks.get_redis_client")
-    def test_skips_invalid_signals(self, mock_get_client, mock_asyncio):
+    def test_skips_invalid_signals(self, mock_get_client, mock_asyncio, mock_reindex):
         """Verify malformed signals are skipped without crashing."""
         mock_client = MagicMock()
         mock_client.lpop.side_effect = [
@@ -72,9 +75,10 @@ class TestCheckReindexSignals:
         assert mock_asyncio.run.call_count == 1
         assert result == {"reindexed": [2025], "failed": []}
 
+    @patch("hipeac_mcp.tasks._reindex_year", new_callable=MagicMock)
     @patch("hipeac_mcp.tasks.asyncio")
     @patch("hipeac_mcp.tasks.get_redis_client")
-    def test_reports_failed_reindex(self, mock_get_client, mock_asyncio):
+    def test_reports_failed_reindex(self, mock_get_client, mock_asyncio, mock_reindex):
         """Verify failed reindexes are reported in the result."""
         mock_client = MagicMock()
         mock_client.lpop.side_effect = [

@@ -95,7 +95,7 @@ def _extract_client_info(
                 if session:
                     client_params = getattr(session, "client_params", None)
                     if client_params:
-                        info = getattr(client_params, "clientInfo", None)
+                        info = getattr(client_params, "client_info", None)
                         if info:
                             result["client"] = f"{info.name}/{info.version}" if info.version else info.name
             break

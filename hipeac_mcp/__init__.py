@@ -7,6 +7,7 @@ import sentry_sdk
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from sentry_sdk.integrations.logging import LoggingIntegration
+from sentry_sdk.integrations.openai_agents import OpenAIAgentsIntegration
 
 from .db import setup_django
 
@@ -15,6 +16,9 @@ sentry_sdk.init(
     dsn=os.environ.get("SENTRY_DSN", None),
     release=os.environ.get("GIT_REV", None),
     enable_logs=True,
+    disabled_integrations=[
+        OpenAIAgentsIntegration,
+    ],
     integrations=[
         LoggingIntegration(
             sentry_logs_level=logging.WARNING,

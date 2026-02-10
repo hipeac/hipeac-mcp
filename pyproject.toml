@@ -6,7 +6,7 @@ authors = [
   {name = "Eneko Illarramendi", email = "eneko@illarra.com"}
 ]
 license = {text = "MIT"}
-requires-python = "~=3.13.0"
+requires-python = "~=3.14.0"
 dependencies = [
   "django",
   "faiss-cpu",
@@ -26,6 +26,7 @@ dependencies = [
 dev = [
   "deadcode",
   "memray",
+  "openai-agents",
   "pytest",
   "pytest-asyncio",
   "pytest-cov",
@@ -45,10 +46,14 @@ show_missing = true
 addopts = "--cov=hipeac_mcp"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore::DeprecationWarning:importlib._bootstrap",
+    "ignore:Use `streamable_http_client` instead:DeprecationWarning",
+]
 pythonpath = ["."]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 120
 
 [tool.ruff.lint]
