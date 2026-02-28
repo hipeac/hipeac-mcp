@@ -7,6 +7,7 @@ import sentry_sdk
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from sentry_sdk.integrations.logging import LoggingIntegration
+from sentry_sdk.integrations.mcp import MCPIntegration
 
 from .db import setup_django
 
@@ -31,6 +32,7 @@ sentry_sdk.init(
         LoggingIntegration(
             sentry_logs_level=logging.WARNING,
         ),
+        MCPIntegration(),
     ],
     traces_sample_rate=0.1,
 )

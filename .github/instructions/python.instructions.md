@@ -35,13 +35,25 @@ description: Python, MCP, and Pytest coding standards for the project.
 - Structure tests using the Arrange-Act-Assert (AAA) pattern.
 - Use `@pytest.fixture` for setup and `@pytest.mark.parametrize` for testing multiple inputs.
 
+### Test-review workflow
+
+When asked to review, audit, or add tests to an existing codebase, always apply this sequence:
+
+1. **Read the tests first.** Critically evaluate each test for correctness, completeness, and false confidence:
+   - Does the assertion actually verify the claimed behaviour, or is it trivially true?
+   - Are edge cases and failure paths covered, not just the happy path?
+   - Are there implicit assumptions about data or timing that could make the test fragile?
+2. **Adjust the tests** to fix any identified weaknesses before running them.
+3. **Run the adjusted suite.** A failing test after adjustment is valuable: it reveals a real bug in the production code.
+4. **Fix the production code** to make failing tests pass — never weaken a test to force it green.
+
 ## Command execution (CRITICAL)
 
-- Rule: all Django and Python commands **must be prefixed with `./run`**.
+- Rule: all Python commands **must be prefixed with `./run`**.
 - This is a required executable script in the project root that sets up the environment and runs commands within it.
 
 - Correct examples:
   > ```bash
   > ./run python manage.py migrate
-  > ./run pytest -k sessions
+  > ./run pytest -k vision
   > ```
