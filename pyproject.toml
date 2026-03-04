@@ -57,8 +57,8 @@ target-version = "py314"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "UP", "B", "SIM", "I"]
-ignore = ["SIM105"]
+select = ["E", "F", "UP", "B", "SIM", "I", "S", "T", "D", "Q"]
+ignore = ["D105", "D106", "D203", "D213", "SIM105"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2

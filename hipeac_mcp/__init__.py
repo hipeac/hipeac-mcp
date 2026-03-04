@@ -20,7 +20,7 @@ try:
     from sentry_sdk.integrations.openai_agents import OpenAIAgentsIntegration
 
     _disabled.append(OpenAIAgentsIntegration)
-except Exception:
+except Exception:  # noqa: S110
     pass
 
 sentry_sdk.init(

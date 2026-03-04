@@ -140,7 +140,7 @@ def _push_event(
 
 
 def track_usage[**P, R](func: Callable[P, R]) -> Callable[P, R]:
-    """Decorator that logs MCP tool usage to Redis with all parameters.
+    """Wrap a callable to log MCP tool usage to Redis with all parameters.
 
     Automatically captures the function name, all non-default arguments,
     and the MCP client identifier if a Context parameter is present.
