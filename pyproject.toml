@@ -47,8 +47,8 @@ addopts = "--cov=hipeac_mcp"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
-    "ignore::DeprecationWarning:importlib._bootstrap",
-    "ignore:Use `streamable_http_client` instead:DeprecationWarning",
+  "ignore::DeprecationWarning:importlib._bootstrap",
+  "ignore:Use `streamable_http_client` instead:DeprecationWarning",
 ]
 pythonpath = ["."]
 
