@@ -20,6 +20,35 @@ logger = logging.getLogger(__name__)
 HIPEAC_BASE_URL = "https://www.hipeac.net"
 
 
+MIN_SIMILARITY_SCORE = 0.45
+"""Minimum cosine similarity required for an article to appear in results.
+
+Articles whose best-matching chunk scores below this value are dropped from
+the response.  Calibrated against 10-query smoke tests: relevant queries
+return 0.48–0.73, off-topic queries (blockchain, food) produce 0.27–0.41.
+Raised from 0.42 to 0.45 to filter borderline false positives (e.g. Cybersecurity
+appearing for compiler/tooling queries).
+"""
+
+AGGREGATE_SCORE_PENALTY = 0.85
+"""Score multiplier applied to aggregate articles (``is_aggregate=True``).
+
+Articles like ``Recommendations`` are cross-cutting compilations that duplicate
+content from every chapter.  Without a penalty they appear in almost every
+result set, pushing out genuinely relevant chapter articles.  0.85 suppresses
+them enough to rank below the primary chapter unless there is no better match.
+"""
+
+MAX_CHUNKS_PER_ARTICLE = 2
+"""Maximum chunks accepted per article from the raw FAISS candidate pool.
+
+Broad articles (e.g. "New Hardware", "Recommendations") have many chunks
+covering diverse topics and can consume the entire candidate pool, preventing
+narrower but more relevant articles from surfacing.  Capping at 2 ensures
+fair representation across all articles in the index.
+"""
+
+
 class VisionRagService(BaseRagService):
     """RAG service for HiPEAC Vision documents.
 
@@ -40,25 +69,28 @@ class VisionRagService(BaseRagService):
         super().__init__()
         self.generator = VisionDocumentGenerator(chunk_size=1500)
 
-    async def search_articles(self, query: str, limit: int = 10) -> VisionSearchResponse:
+    async def search_articles(self, queries: list[str] | str, limit: int = 10) -> VisionSearchResponse:
         """Search Vision articles and return a structured response.
 
-        Performs FAISS semantic search, aggregates chunks by article, enriches
-        with DB metadata (summary, URL), and returns a ``VisionSearchResponse``.
+        Accepts one or more queries. Multiple queries are searched in parallel
+        against FAISS and their raw chunk results are merged (keeping the
+        highest score per chunk) before aggregation, so each distinct semantic
+        angle has a fair chance to surface relevant articles.
 
-        :param query: Natural language search query.
+        :param queries: One query string or a list of up to 3 query strings.
         :param limit: Maximum number of articles to return (max: 5).
         :returns: Structured search response with ranked articles.
         """
         actual_limit = min(limit, 5)
-        articles = await self.search(query, actual_limit)
+        primary_query = queries[0] if isinstance(queries, list) else queries
+        articles = await self.search(queries, actual_limit)
 
         return VisionSearchResponse(
-            query=query,
+            query=primary_query,
             total_results=len(articles),
             articles=[
                 VisionArticleResult(
-                    id=article["id"],
+                    slug=article["slug"],
                     title=article["title"],
                     section=article["section"],
                     summary=article["summary"],
@@ -66,38 +98,50 @@ class VisionRagService(BaseRagService):
                     similarity_score=article["similarity_score"],
                     content_preview=article["content_preview"],
                     references=[VisionReference(code=r["code"], text=r["text"]) for r in article.get("references", [])],
+                    resource_uri=f"hipeac://vision/{article['vision_year']}/{article['slug']}",
                     url=f"{HIPEAC_BASE_URL}{article['url']}",
                 )
                 for article in articles
             ],
         )
 
-    async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+    async def search(self, queries: list[str] | str, limit: int = 10) -> list[dict[str, Any]]:
         """Search for Vision article chunks and aggregate by article.
 
-        :param query: Search query string.
+        Accepts one or more query strings.  When multiple queries are given
+        they are searched in parallel and their chunk results merged before
+        aggregation, giving each semantic angle an equal opportunity to surface
+        relevant articles.
+
+        :param queries: One or more search query strings.
         :param limit: Maximum number of articles to retrieve.
         :returns: List of aggregated article results.
         """
+        query_list = [queries] if isinstance(queries, str) else queries
         start = time.time()
         try:
-            base_results = await super().search(query, limit * 3)
-            logger.info(f"FAISS search completed in {time.time() - start:.2f}s ({len(base_results)} chunks)")
+            base_results = await self._multi_query_search(query_list, limit * 5)
+            logger.info(
+                f"FAISS search ({len(query_list)} quer{'y' if len(query_list) == 1 else 'ies'}) "
+                f"completed in {time.time() - start:.2f}s ({len(base_results)} chunks)"
+            )
 
             aggregated = self._aggregate_chunks(base_results)
 
             if aggregated:
                 await self._enrich_from_database(aggregated)
 
-            for result in aggregated.values():
-                if result["section"] == "Chapters":
-                    result["similarity_score"] = min(1.0, result["similarity_score"] + 0.1)
+            qualifying = {
+                slug: data for slug, data in aggregated.items() if data["similarity_score"] >= MIN_SIMILARITY_SCORE
+            }
 
-            formatted_results = sorted(aggregated.values(), key=lambda x: x["similarity_score"], reverse=True)[:limit]
+            formatted_results = sorted(qualifying.values(), key=lambda x: x["similarity_score"], reverse=True)[:limit]
 
             for result in formatted_results:
-                full_text = " ".join(result["chunks"][:2])
-                resolved = self._resolve_inline_references(full_text, result.get("references", []))
+                # chunks are stored in descending FAISS score order; use only the
+                # best-matching chunk so the preview is focused and clearly relevant.
+                best_chunk = result["chunks"][0] if result["chunks"] else ""
+                resolved = self._resolve_inline_references(best_chunk, result.get("references", []))
                 result["content_preview"] = self._truncate_on_word_boundary(resolved, 800)
                 result.pop("chunks", None)
 
@@ -111,7 +155,12 @@ class VisionRagService(BaseRagService):
     def _aggregate_chunks(self, base_results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Aggregate FAISS chunk results by article slug.
 
-        :param base_results: Raw chunk-level search results.
+        Processes chunks in descending FAISS score order (as returned by the base
+        search). Caps each article at ``MAX_CHUNKS_PER_ARTICLE`` chunks so that
+        large articles with many chunks cannot monopolise the candidate pool and
+        crowd out narrower but more relevant articles.
+
+        :param base_results: Raw chunk-level search results, sorted by score desc.
         :returns: Dictionary of slug -> aggregated article data.
         """
         aggregated: dict[str, dict[str, Any]] = {}
@@ -123,7 +172,7 @@ class VisionRagService(BaseRagService):
 
             if slug not in aggregated:
                 aggregated[slug] = {
-                    "id": slug,
+                    "slug": slug,
                     "title": meta["title"],
                     "section": meta["section"],
                     "summary": "",
@@ -137,7 +186,8 @@ class VisionRagService(BaseRagService):
                     aggregated[slug]["similarity_score"], result["similarity_score"]
                 )
 
-            aggregated[slug]["chunks"].append(result["content"])
+            if len(aggregated[slug]["chunks"]) < MAX_CHUNKS_PER_ARTICLE:
+                aggregated[slug]["chunks"].append(result["content"])
 
         return aggregated
 
@@ -157,12 +207,12 @@ class VisionRagService(BaseRagService):
 
             q_obj = Q()
             for article_data in aggregated.values():
-                q_obj |= Q(slug=article_data["id"], section__vision__year=article_data["vision_year"])
+                q_obj |= Q(slug=article_data["slug"], section__vision__year=article_data["vision_year"])
 
             articles_qs = (
                 VisionArticle.objects.filter(q_obj)
                 .select_related("section__vision")
-                .only("slug", "section__vision__year", "title", "summary", "ai_summary", "content_tree")
+                .only("slug", "section__vision__year", "title", "summary", "ai_summary", "content_tree", "is_aggregate")
             )
 
             async for article_obj in articles_qs:
@@ -172,6 +222,8 @@ class VisionRagService(BaseRagService):
                 entry = aggregated[article_obj.slug]
                 entry["url"] = await sync_to_async(article_obj.get_absolute_url)()
                 entry["summary"] = await sync_to_async(article_obj.get_summary)()
+                if article_obj.is_aggregate:
+                    entry["similarity_score"] *= AGGREGATE_SCORE_PENALTY
 
                 tree = article_obj.content_tree or {}
                 # Filter references to those cited in matched chunks

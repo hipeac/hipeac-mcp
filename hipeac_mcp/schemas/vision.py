@@ -13,7 +13,7 @@ class VisionReference(BaseModel):
 class VisionArticleResult(BaseModel):
     """A single Vision article search result."""
 
-    id: str = Field(..., description="Article slug identifier")
+    slug: str = Field(..., description="Article slug identifier (used in resource URIs and URLs)")
     title: str = Field(..., description="Article title")
     section: str = Field(..., description="Vision section (e.g., 'Chapters', 'Recommendations')")
     summary: str = Field(..., description="Brief article summary")
@@ -21,12 +21,18 @@ class VisionArticleResult(BaseModel):
     similarity_score: float = Field(..., description="Semantic similarity score (0-1)", ge=0, le=1)
     content_preview: str = Field(
         ...,
-        description="Verbatim excerpt of the matching article content (~400 chars). "
+        description="Verbatim excerpt of the matching article content (~800 chars). "
         "This is the ONLY text that may be presented as a direct quote. "
         "Do not fabricate or reconstruct quotes beyond what appears here.",
     )
     references: list[VisionReference] = Field(
         default_factory=list, description="Footnote references cited in the matching content"
+    )
+    resource_uri: str = Field(
+        ...,
+        description="MCP resource URI for retrieving the full article markdown content. "
+        "Use resources/read with this URI when a comprehensive answer requires the complete text "
+        "(e.g. enumerating all recommendations, detailed technical content).",
     )
     url: str = Field(
         ...,

@@ -33,6 +33,42 @@ class VisionSection(models.Model):
         return f"{self.vision} - {self.name}"
 
 
+HIPEAC_BASE_URL = "https://www.hipeac.net"
+
+
+class VisionFile(models.Model):
+    """Public file (PDF, EPUB) attached to a Vision (read-only)."""
+
+    content_type_id = models.IntegerField()
+    object_id = models.IntegerField()
+    file = models.CharField(max_length=500)  # relative storage path, e.g. "public/24/11/file.pdf"
+    extra_data = models.JSONField(default=dict)
+    is_public = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "hipeac_rel_files"
+        managed = False
+
+    def __str__(self) -> str:
+        return f"{self.file_type}: {self.file}"
+
+    @property
+    def file_type(self) -> str:
+        """Return the file type from extra_data (e.g. 'pdf', 'epub').
+
+        :returns: File type string, defaults to 'default' if not set.
+        """
+        return self.extra_data.get("type", "default")
+
+    @property
+    def absolute_url(self) -> str:
+        """Return the absolute public URL for the file.
+
+        :returns: Absolute URL combining the base URL and the media path.
+        """
+        return f"{HIPEAC_BASE_URL}/media/{self.file}"
+
+
 class VisionArticle(models.Model):
     """Vision article within a section (read-only)."""
 
@@ -44,6 +80,7 @@ class VisionArticle(models.Model):
     content_tree = models.JSONField(default=dict)
     summary = models.TextField(blank=True)
     ai_summary = models.TextField(blank=True)
+    is_aggregate = models.BooleanField(default=False)
 
     class Meta:
         db_table = "hipeac_vision_article"

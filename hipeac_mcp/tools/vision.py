@@ -29,6 +29,7 @@ def _get_service(year: int) -> VisionRagService:
 @track_usage
 async def search_vision(
     query: str,
+    queries: list[str] | None = None,
     year: int | None = None,
     years: list[int] | None = None,
     limit: int = 4,
@@ -41,16 +42,32 @@ async def search_vision(
 
     **Important — Query Optimization:**
     This tool performs direct embedding-based vector search — there is no LLM
-    interpretation layer. You MUST rephrase the user's question into a concise,
-    keyword-rich search query optimized for semantic similarity matching.
-    For example:
-    - User asks: "What does HiPEAC think about the future of quantum computing?"
-    - Optimized query: "quantum computing roadmap challenges applications"
-    - User asks: "How should Europe prepare for edge AI?"
-    - Optimized query: "edge AI deployment strategy Europe infrastructure"
+    interpretation layer. You MUST rephrase the user's question into concise,
+    keyword-rich search queries optimized for semantic similarity matching.
 
-    The HiPEAC Vision is a strategic research agenda for computing systems in Europe,
-    representing the collective expertise of Europe's leading computing researchers.
+    **Multi-Query Strategy (strongly recommended):**
+    A single embedding vector averages all concepts and can miss narrower articles.
+    Use the `queries` parameter to provide up to 2 additional angle-specific variants
+    alongside the primary `query`. All are searched in parallel and merged, so each
+    article is found via its strongest matching angle.
+    For example:
+    - User asks: "What does HiPEAC say about sustainable computing?"
+      query:   "sustainability energy efficiency lifecycle IT"
+      queries: ["carbon footprint embodied emissions hardware",
+                "green computing policy Europe low power"]
+    - User asks: "How should Europe tackle AI?"
+      query:   "European AI strategy competitiveness"
+      queries: ["AI accelerators hardware edge inference",
+                "large language models orchestration distributed"]
+
+    Keep each query short and keyword-dense (5-8 words). Avoid repeating the same
+    terms across queries — each should probe a distinct semantic angle.
+
+    **Table of Contents / Full Article Access:**
+    When the user asks "what topics does the Vision cover?" or needs an enumeration of all
+    articles, read the resource `hipeac://vision/{year}` — it contains the full TOC with
+    summaries and download links. Each article result includes a `resource_uri`; use
+    `resources/read` with that URI when a comprehensive answer requires complete article text.
 
     **Year-Specific Search:**
     - year=2025: Search only Vision 2025 (default: latest)
@@ -74,17 +91,21 @@ async def search_vision(
     - If the `content_preview` does not contain enough text to support a specific
       claim, say so explicitly rather than inferring or inventing wording.
 
-    :param query: Natural language question or topic to search for.
+    :param query: Primary keyword-rich search query optimized for semantic similarity.
+    :param queries: Up to 2 additional query variants probing different semantic angles.
     :param year: Specific Vision year to search (default: 2025, latest).
     :param years: List of years to search and compare (overrides year parameter).
     :param limit: Maximum number of articles to return (default: 4, max: 5).
     :returns: Structured search results with ranked articles.
     """
     actual_limit = min(limit, 5)
+    all_queries = [query] + (queries[:2] if queries else [])
 
     if years:
         all_articles: list[VisionArticleResult] = []
-        results_per_year = await asyncio.gather(*[_get_service(y).search_articles(query, actual_limit) for y in years])
+        results_per_year = await asyncio.gather(
+            *[_get_service(y).search_articles(all_queries, actual_limit) for y in years]
+        )
 
         for response in results_per_year:
             all_articles.extend(response.articles)
@@ -98,4 +119,4 @@ async def search_vision(
         )
 
     search_year = year or 2025
-    return await _get_service(search_year).search_articles(query, actual_limit)
+    return await _get_service(search_year).search_articles(all_queries, actual_limit)

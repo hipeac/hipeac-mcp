@@ -47,18 +47,21 @@ class EventRagService(BaseRagService):
         super().__init__()
         self.generator = EventDocumentGenerator()
 
-    async def search_activities(self, query: str, limit: int = 5) -> EventSearchResponse:
+    async def search_activities(self, queries: list[str] | str, limit: int = 5) -> EventSearchResponse:
         """Search event activities and return a structured response.
 
-        Performs FAISS search, aggregates chunks by activity, enriches
-        with DB metadata (people, summary), and returns an ``EventSearchResponse``.
+        Accepts one or more queries. Multiple queries are searched in parallel
+        against FAISS and their raw chunk results are merged (keeping the
+        highest score per chunk) before aggregation, so each semantic angle
+        has a fair chance to surface relevant activities.
 
-        :param query: Natural language search query.
+        :param queries: One query string or a list of up to 3 query strings.
         :param limit: Maximum number of results to return (max: 10).
         :returns: Structured search response with ranked activities.
         """
         actual_limit = min(limit, 10)
-        results = await self.search(query, actual_limit)
+        primary_query = queries[0] if isinstance(queries, list) else queries
+        results = await self.search(queries, actual_limit)
 
         event_name = ""
         event_id = self.event_id
@@ -66,7 +69,7 @@ class EventRagService(BaseRagService):
             event_name = results[0].get("event_name", "")
 
         return EventSearchResponse(
-            query=query,
+            query=primary_query,
             event_name=event_name,
             event_id=event_id,
             total_results=len(results),
@@ -92,16 +95,20 @@ class EventRagService(BaseRagService):
             ],
         )
 
-    async def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+    async def search(self, queries: list[str] | str, limit: int = 5) -> list[dict[str, Any]]:
         """Search for event chunks and aggregate by activity.
 
-        :param query: Search query string.
+        Accepts one or more query strings. Multiple queries are searched in
+        parallel and their chunk results merged before aggregation.
+
+        :param queries: One query string or a list of up to 3 query strings.
         :param limit: Maximum number of activities to retrieve.
         :returns: List of aggregated activity results.
         """
         start = time.time()
+        query_list = [queries] if isinstance(queries, str) else queries
         try:
-            base_results = await super().search(query, limit * 3)
+            base_results = await self._multi_query_search(query_list, limit * 3)
             logger.info(f"FAISS search completed in {time.time() - start:.2f}s ({len(base_results)} chunks)")
 
             aggregated = self._aggregate_chunks(base_results)

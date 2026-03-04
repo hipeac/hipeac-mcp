@@ -66,6 +66,7 @@ async def get_events(ctx: Context = None) -> EventListResponse:
 @track_usage
 async def search_event(
     query: str,
+    queries: list[str] | None = None,
     event_id: int | None = None,
     limit: int = 5,
     ctx: Context = None,
@@ -96,7 +97,15 @@ async def search_event(
     - Schedule Info: "poster session time" → finds poster session details
     - Venue/Logistics: "venue location transport" → finds event logistics info
 
-    :param query: Natural language question or topic to search for.
+    **Multi-Query Strategy:**
+    For complex or multi-faceted questions, pass up to 2 extra query variants
+    via ``queries`` to improve recall across different semantic angles:
+    - User asks: "What sessions cover both AI and energy efficiency?"
+    - ``query``: ``"AI machine learning inference"``,
+      ``queries``: ``["energy efficiency low power computing"]``
+
+    :param query: Primary natural language question or topic to search for.
+    :param queries: Up to 2 additional query variants for multi-angle search.
     :param event_id: Event ID to search (from ``get_events``). Defaults to latest conference.
     :param limit: Maximum number of results to return (default: 5, max: 10).
     :returns: Structured search results with ranked activities.
@@ -112,5 +121,6 @@ async def search_event(
         except Exception:
             return EventSearchResponse(query=query, event_name="", event_id=0, total_results=0, results=[])
 
+    all_queries = [query] + (queries[:2] if queries else [])
     service = _get_service(event_id)
-    return await service.search_activities(query, limit=limit)
+    return await service.search_activities(all_queries, limit=limit)

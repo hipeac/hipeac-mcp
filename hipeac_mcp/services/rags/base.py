@@ -1,5 +1,6 @@
 """Base RAG service with FAISS vector storage."""
 
+import asyncio
 import json
 import logging
 import time
@@ -90,12 +91,12 @@ class BaseRagService:
         """
         return await self.embedding_provider.generate_embedding(text)
 
-    async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Search for documents using semantic similarity.
+    async def _faiss_search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Run a single FAISS similarity search for one query string.
 
         :param query: Search query string.
-        :param limit: Maximum number of results to return.
-        :returns: List of search result dictionaries.
+        :param limit: Maximum number of raw chunk results to return.
+        :returns: List of chunk result dictionaries sorted by descending similarity.
         """
         if self.index is None or self.index.ntotal == 0:  # type: ignore[union-attr]
             return []
@@ -129,6 +130,44 @@ class BaseRagService:
         except Exception as e:
             logger.error(f"Error searching: {e}")
             return []
+
+    async def _multi_query_search(self, queries: list[str], limit: int) -> list[dict[str, Any]]:
+        """Run multiple FAISS searches in parallel and merge results by chunk ID.
+
+        Each query produces a ranked list of chunks. Results are merged keeping
+        the highest similarity score seen for each chunk across all queries, then
+        re-sorted by score descending. This lets each semantic angle of a
+        multi-faceted question surface its own best-matching chunks.
+
+        :param queries: List of query strings (1–3 recommended).
+        :param limit: Number of raw chunks to fetch per query.
+        :returns: Merged and re-sorted list of chunk result dicts.
+        """
+        per_query_results = await asyncio.gather(*[self._faiss_search(q, limit) for q in queries])
+
+        merged: dict[str, dict[str, Any]] = {}
+        for chunk_list in per_query_results:
+            for chunk in chunk_list:
+                chunk_id = chunk["id"]
+                if chunk_id not in merged or chunk["similarity_score"] > merged[chunk_id]["similarity_score"]:
+                    merged[chunk_id] = chunk
+
+        return sorted(merged.values(), key=lambda c: c["similarity_score"], reverse=True)
+
+    async def search(self, queries: list[str] | str, limit: int = 10) -> list[dict[str, Any]]:
+        """Search for documents using semantic similarity.
+
+        Accepts one or more query strings. Multiple queries are searched in
+        parallel and their raw chunk results merged (keeping the highest score
+        per chunk), so each semantic angle has a fair chance to surface
+        relevant documents.
+
+        :param queries: One query string or a list of up to 3 query strings.
+        :param limit: Maximum number of results to return.
+        :returns: List of search result dictionaries sorted by descending similarity.
+        """
+        query_list = [queries] if isinstance(queries, str) else queries
+        return await self._multi_query_search(query_list, limit)
 
     def upsert_documents(
         self, ids: list[str], documents: list[str], embeddings: list[list[float]], metadatas: list[dict[str, Any]]
