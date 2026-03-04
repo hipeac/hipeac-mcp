@@ -19,11 +19,20 @@ class VisionArticleResult(BaseModel):
     summary: str = Field(..., description="Brief article summary")
     vision_year: int = Field(..., description="Vision year (e.g., 2025)")
     similarity_score: float = Field(..., description="Semantic similarity score (0-1)", ge=0, le=1)
-    content_preview: str = Field(..., description="Preview of matching content (first ~400 chars)")
+    content_preview: str = Field(
+        ...,
+        description="Verbatim excerpt of the matching article content (~400 chars). "
+        "This is the ONLY text that may be presented as a direct quote. "
+        "Do not fabricate or reconstruct quotes beyond what appears here.",
+    )
     references: list[VisionReference] = Field(
         default_factory=list, description="Footnote references cited in the matching content"
     )
-    url: str = Field(..., description="Full article URL on hipeac.net")
+    url: str = Field(
+        ...,
+        description="Canonical article URL on hipeac.net. MUST be cited as a clickable link "
+        "whenever this article's content is quoted, summarised, or referenced.",
+    )
 
 
 class VisionSearchResponse(BaseModel):

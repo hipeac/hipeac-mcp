@@ -64,6 +64,16 @@ async def search_vision(
     - Technology Adoption: "How should industry prepare for edge AI?"
     - Policy Guidance: "What recommendations exist for HPC infrastructure?"
 
+    **Response Guidelines — Citation and Quoting:**
+    When presenting results to the user, you MUST follow these rules:
+    - Summaries and interpretations of the returned articles are encouraged and useful.
+    - Direct quotes MUST be taken verbatim from the `content_preview` field only.
+      Never fabricate, reconstruct, or paraphrase text as if it were a direct quote.
+    - Every claim, quote, or interpretation MUST reference the source article using
+      its `title` and `url`. Always present the URL as a clickable link.
+    - If the `content_preview` does not contain enough text to support a specific
+      claim, say so explicitly rather than inferring or inventing wording.
+
     :param query: Natural language question or topic to search for.
     :param year: Specific Vision year to search (default: 2025, latest).
     :param years: List of years to search and compare (overrides year parameter).
