@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from typing import Any
 
 import django
@@ -50,27 +51,47 @@ def _preload_content_types() -> None:
         logger.warning(f"Could not preload content types: {e}")
 
 
+# MySQL error codes that indicate a dropped or broken connection.
+_MYSQL_RECONNECT_CODES = {
+    2006,  # CR_SERVER_GONE_ERROR – server has gone away
+    2026,  # CR_SSL_CONNECTION_ERROR – TLS/SSL error (unexpected EOF, etc.)
+}
+
+
 def ensure_connection():
     """Ensure database connection is alive and healthy.
 
-    This function checks if the connection is usable and recreates it if needed.
-    Call this before database operations or after long operations.
+    Retries once with a short backoff on transient MySQL SSL/connection errors
+    (codes 2006 and 2026) that are common with remote servers.
+    Call this before database operations or after long-running operations.
 
-    :raises: Exception if connection cannot be established.
+    :raises: Exception if connection cannot be established after retry.
     """
-    try:
-        connection.ensure_connection()
-    except Exception as e:
-        logger.warning(f"Database connection lost, reconnecting: {e}")
-        close_old_connections()
-        connection.ensure_connection()
+    for attempt in range(2):
+        try:
+            connection.ensure_connection()
+            return
+        except Exception as e:
+            error_code = e.args[0] if e.args else None
+            is_transient = error_code in _MYSQL_RECONNECT_CODES
+
+            if attempt == 0 and is_transient:
+                logger.warning(f"Transient MySQL error ({error_code}), reconnecting: {e}")
+                close_old_connections()
+                time.sleep(0.2)
+            elif attempt == 0:
+                logger.warning(f"Database connection lost, reconnecting: {e}")
+                close_old_connections()
+            else:
+                raise
 
 
 async def ensure_connection_async():
     """Async-safe version of ensure_connection.
 
-    Use this in async contexts before database queries to prevent MySQL 2006 errors,
-    especially after long-running operations (FAISS searches, AI generation).
+    Use this in async contexts before database queries to prevent transient MySQL
+    connection errors (server gone away, TLS/SSL drops), especially after
+    long-running operations (FAISS searches, AI generation).
     """
     await sync_to_async(ensure_connection)()
 
@@ -81,7 +102,7 @@ class ReadOnlyRouter:
     This prevents accidental writes to the database from the MCP server.
     """
 
-    def db_for_read(self, model: type[Model], **hints: dict[str, Any]) -> str:
+    def db_for_read(self, model: type[Model], **hints: Any) -> str:
         """All reads go to the default database.
 
         :param model: Model being queried.
@@ -90,7 +111,7 @@ class ReadOnlyRouter:
         """
         return "default"
 
-    def db_for_write(self, model: type[Model], **hints: dict[str, Any]) -> None:
+    def db_for_write(self, model: type[Model], **hints: Any) -> str | None:
         """Prevent all writes by returning None.
 
         :param model: Model being written.
@@ -99,7 +120,7 @@ class ReadOnlyRouter:
         """
         return None
 
-    def allow_migrate(self, db: str, app_label: str, model_name: str | None = None, **hints: dict[str, Any]) -> bool:
+    def allow_migrate(self, db: str, app_label: str, model_name: str | None = None, **hints: Any) -> bool:
         """Prevent migrations.
 
         :param db: Database alias.
@@ -126,6 +147,11 @@ def get_content_type_id(app_label: str, model: str) -> int:
     key = f"{app_label}.{model}"
 
     if key not in _content_type_cache:
+        # The cache should have been pre-populated by setup_django.
+        # A miss here means preloading failed; falling back to a live query is
+        # not async-safe — log a warning so the gap is visible in production.
+        logger.warning(f"ContentType cache miss for {key!r} — preload may have failed")
+
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT id FROM django_content_type WHERE app_label = %s AND model = %s",
