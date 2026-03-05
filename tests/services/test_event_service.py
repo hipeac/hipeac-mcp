@@ -477,7 +477,7 @@ class TestSearch:
             }
         ]
 
-        with patch("hipeac_mcp.services.rags.base.BaseRagService.search", new_callable=AsyncMock) as mock_base:
+        with patch.object(service, "_multi_query_search", new_callable=AsyncMock) as mock_base:
             mock_base.return_value = base_results
             results = await service.search("RISC-V", limit=5)
 
@@ -505,7 +505,7 @@ class TestSearch:
             },
         ]
 
-        with patch("hipeac_mcp.services.rags.base.BaseRagService.search", new_callable=AsyncMock) as mock_base:
+        with patch.object(service, "_multi_query_search", new_callable=AsyncMock) as mock_base:
             mock_base.return_value = base_results
             results = await service.search("test", limit=5)
 
@@ -530,8 +530,8 @@ class TestSearch:
         service = EventRagService.__new__(EventRagService)
         service.event_id = 100
 
-        with patch("hipeac_mcp.services.rags.base.BaseRagService.search", new_callable=AsyncMock) as mock_base:
+        with patch.object(service, "_multi_query_search", new_callable=AsyncMock) as mock_base:
             mock_base.return_value = []
             await service.search("test", limit=5)
 
-        mock_base.assert_called_once_with("test", 15)
+        mock_base.assert_called_once_with(["test"], 15)

@@ -25,7 +25,7 @@ def _make_response(query: str = "test", n: int = 1) -> VisionSearchResponse:
     """
     articles = [
         VisionArticleResult(
-            id=f"article-{i}",
+            slug=f"article-{i}",
             title=f"Article {i}",
             section="Chapters",
             summary=f"Summary {i}",
@@ -33,6 +33,7 @@ def _make_response(query: str = "test", n: int = 1) -> VisionSearchResponse:
             similarity_score=0.9 - i * 0.1,
             content_preview=f"Preview {i}",
             references=[],
+            resource_uri=f"hipeac://vision/2025/article-{i}",
             url=f"https://hipeac.net/vision/2025/article-{i}/",
         )
         for i in range(n)
@@ -77,7 +78,7 @@ class TestSearchVision:
         result = await search_vision.__wrapped__("quantum computing")
 
         mock_get_svc.assert_called_once_with(2025)
-        mock_service.search_articles.assert_called_once_with("quantum computing", 4)
+        mock_service.search_articles.assert_called_once_with(["quantum computing"], 4)
         assert result.total_results == 1
 
     @patch("hipeac_mcp.tools.vision._get_service")
@@ -112,7 +113,7 @@ class TestSearchVision:
 
         await search_vision.__wrapped__("query", limit=100)
 
-        mock_service.search_articles.assert_called_once_with("query", 5)
+        mock_service.search_articles.assert_called_once_with(["query"], 5)
 
     @patch("hipeac_mcp.tools.vision._get_service")
     async def test_multi_year_results_sorted_by_score(self, mock_get_svc):
@@ -122,7 +123,7 @@ class TestSearchVision:
             total_results=1,
             articles=[
                 VisionArticleResult(
-                    id="old",
+                    slug="old",
                     title="Old",
                     section="S",
                     summary="",
@@ -130,6 +131,7 @@ class TestSearchVision:
                     similarity_score=0.5,
                     content_preview="",
                     references=[],
+                    resource_uri="hipeac://vision/2024/old",
                     url="https://hipeac.net/vision/2024/old/",
                 )
             ],
@@ -139,7 +141,7 @@ class TestSearchVision:
             total_results=1,
             articles=[
                 VisionArticleResult(
-                    id="new",
+                    slug="new",
                     title="New",
                     section="S",
                     summary="",
@@ -147,6 +149,7 @@ class TestSearchVision:
                     similarity_score=0.9,
                     content_preview="",
                     references=[],
+                    resource_uri="hipeac://vision/2025/new",
                     url="https://hipeac.net/vision/2025/new/",
                 )
             ],
@@ -160,5 +163,5 @@ class TestSearchVision:
 
         result = await search_vision.__wrapped__("q", years=[2024, 2025])
 
-        assert result.articles[0].id == "new"
+        assert result.articles[0].slug == "new"
         assert result.articles[0].similarity_score > result.articles[1].similarity_score

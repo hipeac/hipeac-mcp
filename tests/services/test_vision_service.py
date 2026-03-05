@@ -221,18 +221,13 @@ class TestSearch:
         ]
 
         with (
-            patch.object(VisionRagService, "search", wraps=service.search),
-            patch(
-                "hipeac_mcp.services.rags.base.BaseRagService.search",
-                new_callable=AsyncMock,
-                return_value=chunk_results,
-            ),
+            patch.object(service, "_multi_query_search", new_callable=AsyncMock, return_value=chunk_results),
             patch.object(service, "_enrich_from_database", new_callable=AsyncMock),
         ):
             results = await service.search("artificial intelligence", limit=5)
 
         assert len(results) == 1
-        assert results[0]["id"] == "ai"
+        assert results[0]["slug"] == "ai"
         assert "content_preview" in results[0]
 
     async def test_returns_empty_on_error(self, service):
@@ -246,8 +241,8 @@ class TestSearch:
 
         assert results == []
 
-    async def test_boosts_chapter_scores(self, service):
-        """Chapter articles get a 0.1 similarity boost."""
+    async def test_no_score_boost_for_chapters(self, service):
+        """Chapter articles do not receive a score boost; score is unchanged."""
         chunk_results = [
             {
                 "content": "Content.",
@@ -257,16 +252,12 @@ class TestSearch:
         ]
 
         with (
-            patch(
-                "hipeac_mcp.services.rags.base.BaseRagService.search",
-                new_callable=AsyncMock,
-                return_value=chunk_results,
-            ),
+            patch.object(service, "_multi_query_search", new_callable=AsyncMock, return_value=chunk_results),
             patch.object(service, "_enrich_from_database", new_callable=AsyncMock),
         ):
             results = await service.search("test", limit=1)
 
-        assert results[0]["similarity_score"] == pytest.approx(0.8)
+        assert results[0]["similarity_score"] == pytest.approx(0.7)
 
 
 class TestSearchArticles:
@@ -286,7 +277,7 @@ class TestSearchArticles:
         """search_articles wraps search results into VisionSearchResponse."""
         search_results = [
             {
-                "id": "quantum",
+                "slug": "quantum",
                 "title": "Quantum Computing",
                 "section": "Chapters",
                 "summary": "About quantum.",
@@ -303,7 +294,7 @@ class TestSearchArticles:
 
         assert response.query == "quantum computing"
         assert response.total_results == 1
-        assert response.articles[0].id == "quantum"
+        assert response.articles[0].slug == "quantum"
         assert response.articles[0].url == "https://www.hipeac.net/vision/2025/quantum/"
 
     async def test_caps_limit_at_5(self, service):

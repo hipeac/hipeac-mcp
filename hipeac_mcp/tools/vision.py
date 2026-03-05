@@ -6,6 +6,8 @@ from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from hipeac_mcp import mcp
+from hipeac_mcp.resources.vision import get_vision_article as _get_article
+from hipeac_mcp.resources.vision import get_vision_overview as _get_overview
 from hipeac_mcp.schemas.vision import VisionArticleResult, VisionSearchResponse
 from hipeac_mcp.services.analytics import track_usage
 from hipeac_mcp.services.rags import VisionRagService
@@ -65,9 +67,9 @@ async def search_vision(
 
     **Table of Contents / Full Article Access:**
     When the user asks "what topics does the Vision cover?" or needs an enumeration of all
-    articles, read the resource `hipeac://vision/{year}` — it contains the full TOC with
-    summaries and download links. Each article result includes a `resource_uri`; use
-    `resources/read` with that URI when a comprehensive answer requires complete article text.
+    articles, call ``get_vision_overview``. Each article result includes a ``resource_uri``
+    and a ``slug``; call ``get_vision_article(slug, year)`` when a comprehensive answer
+    requires complete article text (full recommendations, detailed technical content).
 
     **Year-Specific Search:**
     - year=2025: Search only Vision 2025 (default: latest)
@@ -120,3 +122,50 @@ async def search_vision(
 
     search_year = year or 2025
     return await _get_service(search_year).search_articles(all_queries, actual_limit)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@track_usage
+async def get_vision_article(slug: str, year: int = 2025, ctx: Context = None) -> str:
+    """Retrieve the full markdown content of a HiPEAC Vision article.
+
+    **Prefer ``resources/read`` if your client supports MCP resources** — use
+    the ``resource_uri`` field from ``search_vision`` results directly. This tool
+    exists as a fallback for clients that do not support the resources protocol.
+
+    Use this after ``search_vision`` when a comprehensive answer requires the
+    complete article text — for example, to enumerate all recommendations,
+    extract detailed technical content, or answer follow-up questions that the
+    ``content_preview`` alone cannot support.
+
+    Each ``search_vision`` result includes a ``resource_uri`` of the form
+    ``hipeac://vision/{year}/{slug}`` — the ``slug`` and ``year`` values map
+    directly to the parameters of this tool.
+
+    :param slug: Article slug from a ``search_vision`` result (e.g. ``"sustainability"``).
+    :param year: Vision year (default: 2025).
+    :returns: Full article content as Markdown, starting with the title and summary.
+    :raises ValueError: If no article matches the given slug and year.
+    """
+    return await _get_article(year=year, slug=slug)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@track_usage
+async def get_vision_overview(year: int = 2025, ctx: Context = None) -> str:
+    """Retrieve the table of contents and download links for a HiPEAC Vision year.
+
+    **Prefer ``resources/read`` with URI ``hipeac://vision/{year}`` if your client
+    supports MCP resources.** This tool exists as a fallback for clients that do
+    not support the resources protocol.
+
+    Returns a JSON document with all sections and articles (title, slug, summary,
+    resource URI, URL) plus PDF and EPUB download links. Use this when the user
+    asks what topics the Vision covers, requests a full list of articles, or needs
+    the document download URL.
+
+    :param year: Vision year (default: 2025).
+    :returns: JSON-encoded overview with sections, article summaries and file URLs.
+    :raises ValueError: If no Vision document exists for the given year.
+    """
+    return await _get_overview(year=year)

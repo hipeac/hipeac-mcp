@@ -20,13 +20,15 @@ class TestServerInitialization:
         assert "search_members" in tool_names
         assert "get_events" in tool_names
         assert "search_event" in tool_names
-        assert len(tool_names) == 5
+        assert "get_vision_article" in tool_names
+        assert "get_vision_overview" in tool_names
+        assert len(tool_names) == 7
 
     def test_resources_registered(self):
-        """Test that no resources are registered (moved to tools)."""
+        """Test that Vision resource templates are registered."""
         from hipeac_mcp import mcp
 
-        assert len(mcp._resource_manager._resources) == 0
+        assert len(mcp._resource_manager._templates) >= 2
 
     def test_server_asgi_app(self):
         """Test that server exports ASGI app."""

@@ -217,7 +217,7 @@ class TestSearchEvent:
 
         await search_event.__wrapped__("test", event_id=100, limit=8)
 
-        mock_service.search_activities.assert_called_once_with("test", limit=8)
+        mock_service.search_activities.assert_called_once_with(["test"], limit=8)
 
     @patch("hipeac_mcp.tools.events._get_service")
     @patch("hipeac_mcp.tools.events.sync_to_async")
