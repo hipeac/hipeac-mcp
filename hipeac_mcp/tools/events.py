@@ -83,26 +83,19 @@ async def search_event(
     This tool performs direct embedding-based vector search — there is no LLM
     interpretation layer. You MUST rephrase the user's question into a concise,
     keyword-rich search query optimized for semantic similarity matching.
-    For example:
-    - User asks: "What workshops are about RISC-V?"
-    - Optimized query: "RISC-V workshop HPC architecture"
-    - User asks: "When is the keynote?"
-    - Optimized query: "keynote schedule time"
-    - User asks: "Who is speaking about security?"
-    - Optimized query: "security speaker presentation"
+    Strip conversational framing and retain only the topic keywords, activity type,
+    and any relevant context (e.g. speaker role, session format, logistics).
 
     **Use Cases:**
-    - Activity Search: "RISC-V HPC workshop" → finds RISC-V related workshops
-    - Speaker Lookup: "keynote AI hardware" → finds keynotes about AI hardware
-    - Schedule Info: "poster session time" → finds poster session details
-    - Venue/Logistics: "venue location transport" → finds event logistics info
+    - Finding sessions on a topic: topic keywords + activity type (workshop, tutorial…)
+    - Speaker lookup: person name or role + topic domain
+    - Schedule / logistics: session format keyword + time or venue term
 
     **Multi-Query Strategy:**
     For complex or multi-faceted questions, pass up to 2 extra query variants
-    via ``queries`` to improve recall across different semantic angles:
-    - User asks: "What sessions cover both AI and energy efficiency?"
-    - ``query``: ``"AI machine learning inference"``,
-      ``queries``: ``["energy efficiency low power computing"]``
+    via ``queries`` to improve recall across different semantic angles.
+    Each variant should probe a distinct dimension of the question (e.g. one targeting
+    the technical topic, another targeting the application domain or event format).
 
     :param query: Primary natural language question or topic to search for.
     :param queries: Up to 2 additional query variants for multi-angle search.

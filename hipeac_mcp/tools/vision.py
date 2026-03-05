@@ -52,18 +52,11 @@ async def search_vision(
     Use the `queries` parameter to provide up to 2 additional angle-specific variants
     alongside the primary `query`. All are searched in parallel and merged, so each
     article is found via its strongest matching angle.
-    For example:
-    - User asks: "What does HiPEAC say about sustainable computing?"
-      query:   "sustainability energy efficiency lifecycle IT"
-      queries: ["carbon footprint embodied emissions hardware",
-                "green computing policy Europe low power"]
-    - User asks: "How should Europe tackle AI?"
-      query:   "European AI strategy competitiveness"
-      queries: ["AI accelerators hardware edge inference",
-                "large language models orchestration distributed"]
 
-    Keep each query short and keyword-dense (5-8 words). Avoid repeating the same
-    terms across queries — each should probe a distinct semantic angle.
+    Each query variant should target a *different semantic angle* of the user's question:
+    one might focus on the core technology, another on the application domain, another on
+    the socio-economic or policy dimension. Keep each short and keyword-dense (5-8 words).
+    Avoid repeating the same terms across variants — diversity is what improves recall.
 
     **Table of Contents / Full Article Access:**
     When the user asks "what topics does the Vision cover?" or needs an enumeration of all
@@ -77,11 +70,9 @@ async def search_vision(
     - years=[2024, 2025]: Search multiple years and compare perspectives
 
     **Use Cases:**
-    - Current Trends: "What are the emerging trends in AI accelerators?"
-    - Historical View: "What did Vision 2024 say about quantum computing?" (year=2024)
-    - Evolution: "How has the vision on sustainability evolved?" (years=[2023, 2024, 2025])
-    - Technology Adoption: "How should industry prepare for edge AI?"
-    - Policy Guidance: "What recommendations exist for HPC infrastructure?"
+    - Current trends in a topic: use the default year, single focused query.
+    - Historical view: pass ``year=<year>`` to scope to a specific edition.
+    - Evolution of a topic across editions: pass ``years=[...]`` and compare.
 
     **Response Guidelines — Citation and Quoting:**
     When presenting results to the user, you MUST follow these rules:
@@ -142,7 +133,7 @@ async def get_vision_article(slug: str, year: int = 2025, ctx: Context = None) -
     ``hipeac://vision/{year}/{slug}`` — the ``slug`` and ``year`` values map
     directly to the parameters of this tool.
 
-    :param slug: Article slug from a ``search_vision`` result (e.g. ``"sustainability"``).
+    :param slug: Article slug from a ``search_vision`` result (e.g. ``"my-article-slug"``).
     :param year: Vision year (default: 2025).
     :returns: Full article content as Markdown, starting with the title and summary.
     :raises ValueError: If no article matches the given slug and year.
