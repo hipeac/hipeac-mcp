@@ -34,7 +34,9 @@ sentry_sdk.init(
         ),
         MCPIntegration(),
     ],
-    traces_sample_rate=0.1,
+    traces_sample_rate=0.5,
+    # pii
+    send_default_pii=True,
 )
 
 setup_django()
