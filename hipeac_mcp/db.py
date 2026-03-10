@@ -89,10 +89,19 @@ def ensure_connection():
 async def ensure_connection_async():
     """Async-safe version of ensure_connection.
 
+    Closes all stale thread-local connections before delegating to
+    ``ensure_connection``.  Django's async ORM dispatches queries via
+    ``sync_to_async`` thread workers; each worker has its own thread-local
+    connection that may have been dropped by the MySQL server while idle.
+    Calling ``close_old_connections()`` here, *before* entering the thread
+    pool, ensures every worker starts with a fresh connection instead of
+    inheriting a dead one.
+
     Use this in async contexts before database queries to prevent transient MySQL
     connection errors (server gone away, TLS/SSL drops), especially after
     long-running operations (FAISS searches, AI generation).
     """
+    await sync_to_async(close_old_connections)()
     await sync_to_async(ensure_connection)()
 
 
