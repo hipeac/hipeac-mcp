@@ -8,7 +8,7 @@ authors = [
 license = {text = "MIT"}
 requires-python = "~=3.14.0"
 dependencies = [
-  "django",
+  "django>=6.0,<7.0",
   "faiss-cpu",
   "gunicorn",
   "huey",
@@ -49,6 +49,7 @@ asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
   "ignore::DeprecationWarning:importlib._bootstrap",
   "ignore:Use `streamable_http_client` instead:DeprecationWarning",
+  "ignore:The `dict` method is deprecated:DeprecationWarning:sentry_sdk",
 ]
 pythonpath = ["."]
 
