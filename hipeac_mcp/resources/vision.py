@@ -97,6 +97,7 @@ async def get_vision_overview(year: int) -> str:
         {
             "year": year,
             "title": f"HiPEAC Vision {year}",
+            "is_draft": vision.is_draft,
             "pdf_url": files.get("pdf"),
             "epub_url": files.get("epub"),
             "sections": toc,

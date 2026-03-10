@@ -37,15 +37,24 @@ class VisionDocumentGenerator:
         :param article: VisionArticle model instance.
         :returns: List of chunk dictionaries with content and metadata.
         """
+        tree = article.content_tree or {}
+
         base_metadata: dict[str, Any] = {
             "title": article.title,
             "slug": article.slug,
             "section": article.section.name,
             "vision_year": article.section.vision.year,
         }
+
+        authors = [a["name"] for a in tree.get("authors", []) if a.get("name")]
+        keywords = tree.get("keywords", [])
+        if authors:
+            base_metadata["authors"] = authors
+        if keywords:
+            base_metadata["keywords"] = keywords
+
         id_prefix = f"{article.section.vision.year}_{article.slug}"
 
-        tree = article.content_tree or {}
         elements = tree.get("elements", [])
 
         if elements:

@@ -39,6 +39,13 @@ async def search_vision(
 ) -> VisionSearchResponse:
     """Search HiPEAC Vision strategic documents using semantic search.
 
+    **Entry point — always start here for any Vision content question.**
+    Call this tool first whenever the user asks about HiPEAC Vision content,
+    recommendations, technology trends, or strategies — even if you have seen
+    Vision slugs or article titles earlier in the conversation. Prior context
+    is not a substitute for a live search; use it only to phrase better queries.
+    Do NOT call ``get_vision_article`` before running at least one search.
+
     Returns ranked articles with summaries and content previews.
     The MCP client should synthesize insights from the returned data.
 
@@ -61,8 +68,10 @@ async def search_vision(
     **Table of Contents / Full Article Access:**
     When the user asks "what topics does the Vision cover?" or needs an enumeration of all
     articles, call ``get_vision_overview``. Each article result includes a ``resource_uri``
-    and a ``slug``; call ``get_vision_article(slug, year)`` when a comprehensive answer
-    requires complete article text (full recommendations, detailed technical content).
+    and a ``slug``; call ``get_vision_article(slug, year)`` only after a search has confirmed
+    the article is relevant and the ``content_preview`` alone is insufficient (e.g., to
+    enumerate all recommendations, extract detailed technical content, or answer follow-up
+    questions that cannot be answered from the preview).
 
     **Year-Specific Search:**
     - year=2025: Search only Vision 2025 (default: latest)
@@ -77,12 +86,12 @@ async def search_vision(
     **Response Guidelines — Citation and Quoting:**
     When presenting results to the user, you MUST follow these rules:
     - Summaries and interpretations of the returned articles are encouraged and useful.
-    - Direct quotes MUST be taken verbatim from the `content_preview` field only.
-      Never fabricate, reconstruct, or paraphrase text as if it were a direct quote.
+    - Direct quotes MUST be verbatim from `content_preview` when working from search
+      results. Never fabricate, reconstruct, or paraphrase text as if it were a direct
+      quote. If the preview does not contain enough text, call ``get_vision_article``
+      to obtain the full article — do not invent wording to fill the gap.
     - Every claim, quote, or interpretation MUST reference the source article using
       its `title` and `url`. Always present the URL as a clickable link.
-    - If the `content_preview` does not contain enough text to support a specific
-      claim, say so explicitly rather than inferring or inventing wording.
 
     :param query: Primary keyword-rich search query optimized for semantic similarity.
     :param queries: Up to 2 additional query variants probing different semantic angles.
@@ -120,20 +129,25 @@ async def search_vision(
 async def get_vision_article(slug: str, year: int = 2025, ctx: Context = None) -> str:
     """Retrieve the full markdown content of a HiPEAC Vision article.
 
+    **PREREQUISITE — you MUST call ``search_vision`` first.**
+    The ``slug`` parameter MUST come from a ``search_vision`` result returned in the
+    current session. Never call this tool with a slug taken from memory, prior
+    conversation context, or inference — always run a search first to obtain a live,
+    confirmed slug. If you already have a slug from earlier in the conversation,
+    call ``search_vision`` again to verify it and retrieve fresh context.
+
     **Prefer ``resources/read`` if your client supports MCP resources** — use
     the ``resource_uri`` field from ``search_vision`` results directly. This tool
     exists as a fallback for clients that do not support the resources protocol.
 
-    Use this after ``search_vision`` when a comprehensive answer requires the
-    complete article text — for example, to enumerate all recommendations,
-    extract detailed technical content, or answer follow-up questions that the
-    ``content_preview`` alone cannot support.
+    Only call this when ``search_vision`` confirmed the article exists and the
+    ``content_preview`` alone is insufficient to answer the user's question.
 
     Each ``search_vision`` result includes a ``resource_uri`` of the form
     ``hipeac://vision/{year}/{slug}`` — the ``slug`` and ``year`` values map
     directly to the parameters of this tool.
 
-    :param slug: Article slug from a ``search_vision`` result (e.g. ``"my-article-slug"``).
+    :param slug: Article slug from a ``search_vision`` result in the current session.
     :param year: Vision year (default: 2025).
     :returns: Full article content as Markdown, starting with the title and summary.
     :raises ValueError: If no article matches the given slug and year.

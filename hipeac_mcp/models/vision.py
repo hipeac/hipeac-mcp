@@ -7,6 +7,7 @@ class Vision(models.Model):
     """HiPEAC Vision document (read-only)."""
 
     year = models.IntegerField(unique=True)
+    is_draft = models.BooleanField(default=False)
 
     class Meta:
         db_table = "hipeac_vision"
