@@ -56,7 +56,7 @@ async def _run_mcp_server():
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-        raise TimeoutError(f"MCP server failed to start within {STARTUP_TIMEOUT_SECONDS}s")
+        raise TimeoutError(f"MCP server failed to start within {STARTUP_TIMEOUT_SECONDS}s") from None
 
     try:
         yield f"http://127.0.0.1:{port}/"

@@ -1,3 +1,5 @@
+"""Gunicorn configuration for the HiPEAC MCP server."""
+
 import os
 
 

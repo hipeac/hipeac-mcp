@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from hipeac_mcp.schemas.vision import VisionArticleResult, VisionSearchResponse
-from hipeac_mcp.tools.vision import _get_service, _service_cache, search_vision
+from hipeac_mcp.tools.vision import _get_service, _service_cache, get_vision_article, get_vision_overview, search_vision
 
 
 @pytest.fixture(autouse=True)
@@ -165,3 +165,31 @@ class TestSearchVision:
 
         assert result.articles[0].slug == "new"
         assert result.articles[0].similarity_score > result.articles[1].similarity_score
+
+
+class TestGetVisionArticleTool:
+    """Tests for the get_vision_article tool wrapper."""
+
+    @patch("hipeac_mcp.tools.vision._get_article")
+    async def test_delegates_to_resource_handler(self, mock_get_article):
+        """get_vision_article passes year and slug through to the resource handler."""
+        mock_get_article.return_value = "# AI Trends\nBody text."
+
+        result = await get_vision_article.__wrapped__("ai-trends", year=2025)
+
+        mock_get_article.assert_called_once_with(year=2025, slug="ai-trends")
+        assert result == "# AI Trends\nBody text."
+
+
+class TestGetVisionOverviewTool:
+    """Tests for the get_vision_overview tool wrapper."""
+
+    @patch("hipeac_mcp.tools.vision._get_overview")
+    async def test_delegates_to_resource_handler(self, mock_get_overview):
+        """get_vision_overview passes year through to the resource handler."""
+        mock_get_overview.return_value = '{"year": 2025}'
+
+        result = await get_vision_overview.__wrapped__(year=2025)
+
+        mock_get_overview.assert_called_once_with(year=2025)
+        assert result == '{"year": 2025}'

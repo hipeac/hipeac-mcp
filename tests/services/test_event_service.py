@@ -512,14 +512,12 @@ class TestSearch:
         assert results[0]["similarity_score"] > results[1]["similarity_score"]
         assert results[0]["activity_id"] == 20
 
-    @patch.object(EventRagService, "_enrich_from_database", new_callable=AsyncMock)
-    async def test_search_error_returns_empty(self, mock_enrich):
+    async def test_search_error_returns_empty(self):
         """Search errors are caught and return an empty list."""
         service = EventRagService.__new__(EventRagService)
         service.event_id = 100
 
-        with patch("hipeac_mcp.services.rags.base.BaseRagService.search", new_callable=AsyncMock) as mock_base:
-            mock_base.side_effect = Exception("FAISS error")
+        with patch.object(service, "_multi_query_search", new_callable=AsyncMock, side_effect=Exception("FAISS")):
             results = await service.search("test")
 
         assert results == []
@@ -535,3 +533,194 @@ class TestSearch:
             await service.search("test", limit=5)
 
         mock_base.assert_called_once_with(["test"], 15)
+
+
+class TestEventRagServiceInit:
+    """Tests for EventRagService.__init__."""
+
+    def test_sets_event_id_and_collection_name(self):
+        """__init__ stores event_id and derives the COLLECTION_NAME."""
+        with (
+            patch.object(EventRagService, "_load_or_create_index"),
+            patch("hipeac_mcp.services.rags.events.service.EventDocumentGenerator"),
+            patch("hipeac_mcp.services.rags.base.get_embedding_provider"),
+            patch("hipeac_mcp.services.rags.base.settings") as mock_settings,
+        ):
+            mock_settings.FAISS_INDEX_PATH = "/var/tmp/test_rag"
+            svc = EventRagService(event_id=42)
+
+        assert svc.event_id == 42
+        assert svc.COLLECTION_NAME == "event_42"
+
+
+class TestEnrichFromDatabasePeopleBranches:
+    """Tests for uncovered branches in the people-enrichment loop."""
+
+    @staticmethod
+    def _make_async_iterator(items):
+        """Create an async iterable from a list of items."""
+
+        async def _iter(self):
+            for item in items:
+                yield item
+
+        mock_qs = MagicMock()
+        mock_qs.__aiter__ = _iter
+        return mock_qs
+
+    @patch("hipeac_mcp.services.rags.events.service.ensure_connection_async", new_callable=AsyncMock)
+    @patch("hipeac_mcp.services.rags.events.service.activity_ct_id", return_value=39)
+    @patch("hipeac_mcp.services.rags.events.service.user_ct_id", return_value=25)
+    async def test_skips_user_not_in_users_map(self, mock_user_ct, mock_act_ct, mock_conn):
+        """A user referenced in ActivityUser but not fetched from DB is skipped."""
+        service = EventRagService.__new__(EventRagService)
+        service.event_id = 100
+
+        activity = MagicMock()
+        activity.id = 42
+        activity.title = "Talk"
+        activity.slug = "talk"
+        activity.summary = ""
+        activity.ai_summary = ""
+        activity.room_id = None
+
+        # au references user_id=99, but we return no users from the DB query
+        au = MagicMock()
+        au.object_id = 42  # must match activity_id so the rel is looked up
+        au.user_id = 99
+        au.extra_data = {"is_speaker": True}
+
+        aggregated = {"42": {"activity_id": 42, "title": "", "summary": "", "chunks": []}}
+
+        with (
+            patch("hipeac_mcp.services.rags.events.service.Activity") as mock_activity_cls,
+            patch("hipeac_mcp.services.rags.events.service.Room") as mock_room_cls,
+            patch("hipeac_mcp.services.rags.events.service.ActivityUser") as mock_au_cls,
+            patch("hipeac_mcp.services.rags.events.service.EventUser") as mock_user_cls,
+            patch("hipeac_mcp.services.rags.events.service.RelatedInstitution") as mock_ri_cls,
+            patch("hipeac_mcp.services.rags.events.service.EventInstitution") as mock_inst_cls,
+        ):
+            mock_activity_cls.objects.filter.return_value = self._make_async_iterator([activity])
+            mock_room_cls.objects.select_related.return_value.filter.return_value = self._make_async_iterator([])
+            mock_au_cls.objects.filter.return_value.order_by.return_value = self._make_async_iterator([au])
+            mock_user_cls.objects.filter.return_value = self._make_async_iterator([])  # no users returned
+            mock_ri_cls.objects.filter.return_value = self._make_async_iterator([])
+            mock_inst_cls.objects.filter.return_value = self._make_async_iterator([])
+
+            await service._enrich_from_database(aggregated)
+
+        assert aggregated["42"]["people"] == []
+
+    @patch("hipeac_mcp.services.rags.events.service.ensure_connection_async", new_callable=AsyncMock)
+    @patch("hipeac_mcp.services.rags.events.service.activity_ct_id", return_value=39)
+    @patch("hipeac_mcp.services.rags.events.service.user_ct_id", return_value=25)
+    async def test_skips_user_with_no_recognized_role(self, mock_user_ct, mock_act_ct, mock_conn):
+        """Non-ACACES activity user with no role flags is silently skipped."""
+        service = EventRagService.__new__(EventRagService)
+        service.event_id = 100
+
+        activity = MagicMock()
+        activity.id = 42
+        activity.title = "Workshop"
+        activity.slug = "workshop"
+        activity.summary = ""
+        activity.ai_summary = ""
+        activity.room_id = None
+
+        # No is_speaker / is_organizer / is_main_speaker; event is NOT ACACES
+        au = MagicMock()
+        au.object_id = 42  # must match activity_id
+        au.user_id = 1
+        au.extra_data = {}
+
+        user = MagicMock()
+        user.id = 1
+        user.name = "Attendee"
+
+        aggregated = {
+            "overview": {"activity_id": 0, "event_name": "HiPEAC 2026", "chunks": []},
+            "42": {"activity_id": 42, "title": "", "summary": "", "chunks": []},
+        }
+
+        with (
+            patch("hipeac_mcp.services.rags.events.service.Activity") as mock_activity_cls,
+            patch("hipeac_mcp.services.rags.events.service.Room") as mock_room_cls,
+            patch("hipeac_mcp.services.rags.events.service.ActivityUser") as mock_au_cls,
+            patch("hipeac_mcp.services.rags.events.service.EventUser") as mock_user_cls,
+            patch("hipeac_mcp.services.rags.events.service.RelatedInstitution") as mock_ri_cls,
+            patch("hipeac_mcp.services.rags.events.service.EventInstitution") as mock_inst_cls,
+        ):
+            mock_activity_cls.objects.filter.return_value = self._make_async_iterator([activity])
+            mock_room_cls.objects.select_related.return_value.filter.return_value = self._make_async_iterator([])
+            mock_au_cls.objects.filter.return_value.order_by.return_value = self._make_async_iterator([au])
+            mock_user_cls.objects.filter.return_value = self._make_async_iterator([user])
+            mock_ri_cls.objects.filter.return_value = self._make_async_iterator([])
+            mock_inst_cls.objects.filter.return_value = self._make_async_iterator([])
+
+            await service._enrich_from_database(aggregated)
+
+        assert aggregated["42"]["people"] == []
+
+    @patch("hipeac_mcp.services.rags.events.service.ensure_connection_async", new_callable=AsyncMock)
+    async def test_silently_ignores_db_errors(self, mock_conn):
+        """A database error during enrichment is caught and logged without raising."""
+        mock_conn.side_effect = RuntimeError("connection lost")
+
+        service = EventRagService.__new__(EventRagService)
+        service.event_id = 100
+        aggregated = {"42": {"activity_id": 42, "title": "", "chunks": []}}
+
+        await service._enrich_from_database(aggregated)
+
+        # Original aggregated data is unchanged
+        assert aggregated["42"]["activity_id"] == 42
+
+    """Tests for EventRagService.index_event."""
+
+    @patch("hipeac_mcp.services.rags.events.service.ensure_connection_async", new_callable=AsyncMock)
+    async def test_indexes_event_successfully(self, mock_conn):
+        """index_event returns True when chunks are generated and upserted."""
+        service = EventRagService.__new__(EventRagService)
+        service.generator = MagicMock()
+        service.generator.generate_chunks = AsyncMock(
+            return_value=[{"id": "e100_a1", "content": "Workshop content", "metadata": {"activity_id": 1}}]
+        )
+        service.generate_embedding = AsyncMock(return_value=[0.1] * 128)
+        service.upsert_documents = MagicMock(return_value=True)
+
+        event = MagicMock()
+        event.id = 100
+        event.name = "HiPEAC 2026"
+
+        result = await service.index_event(event)
+
+        assert result is True
+        service.upsert_documents.assert_called_once()
+
+    @patch("hipeac_mcp.services.rags.events.service.ensure_connection_async", new_callable=AsyncMock)
+    async def test_returns_false_when_no_chunks(self, mock_conn):
+        """index_event returns False and logs a warning when no chunks are produced."""
+        service = EventRagService.__new__(EventRagService)
+        service.generator = MagicMock()
+        service.generator.generate_chunks = AsyncMock(return_value=[])
+
+        event = MagicMock()
+        event.id = 100
+
+        result = await service.index_event(event)
+
+        assert result is False
+
+    @patch("hipeac_mcp.services.rags.events.service.ensure_connection_async", new_callable=AsyncMock)
+    async def test_returns_false_on_exception(self, mock_conn):
+        """index_event catches exceptions and returns False."""
+        service = EventRagService.__new__(EventRagService)
+        service.generator = MagicMock()
+        service.generator.generate_chunks = AsyncMock(side_effect=RuntimeError("DB error"))
+
+        event = MagicMock()
+        event.id = 100
+
+        result = await service.index_event(event)
+
+        assert result is False

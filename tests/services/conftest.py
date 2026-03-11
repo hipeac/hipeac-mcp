@@ -72,7 +72,7 @@ def build_fake_context(
 
 @pytest.fixture
 def fake_ctx() -> FakeContext:
-    """A fake Context with default client info.
+    """Create a fake Context with default client info.
 
     :returns: FakeContext with ``test-client/1.0.0``.
     """
@@ -81,7 +81,7 @@ def fake_ctx() -> FakeContext:
 
 @pytest.fixture
 def mock_ctx() -> MagicMock:
-    """A MagicMock Context (spec-constrained) for tests that need mocking.
+    """Create a MagicMock Context (spec-constrained) for tests that need mocking.
 
     :returns: MagicMock with spec=Context.
     """

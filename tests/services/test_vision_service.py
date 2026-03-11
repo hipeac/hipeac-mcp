@@ -124,6 +124,11 @@ class TestTruncateOnWordBoundary:
         result = VisionRagService._truncate_on_word_boundary(text, cut_inside_link)
         assert "[Ref](https://example.com/very/long/path)" in result
 
+    def test_cuts_at_max_length_when_no_space_before_limit(self):
+        """When no space exists before max_length, cuts exactly at max_length."""
+        result = VisionRagService._truncate_on_word_boundary("ABCDEFGHIJ", 5)
+        assert result == "ABCDE"
+
 
 class TestAggregateChunks:
     """Tests for _aggregate_chunks."""
@@ -134,9 +139,11 @@ class TestAggregateChunks:
 
         :returns: A VisionRagService instance.
         """
-        with patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"):
-            with patch.object(VisionRagService, "_load_or_create_index"):
-                return VisionRagService(year=2025)
+        with (
+            patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"),
+            patch.object(VisionRagService, "_load_or_create_index"),
+        ):
+            return VisionRagService(year=2025)
 
     def test_aggregates_chunks_by_slug(self, service):
         """Chunks from the same article are grouped under one slug."""
@@ -201,9 +208,11 @@ class TestSearch:
 
         :returns: A VisionRagService instance.
         """
-        with patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"):
-            with patch.object(VisionRagService, "_load_or_create_index"):
-                return VisionRagService(year=2025)
+        with (
+            patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"),
+            patch.object(VisionRagService, "_load_or_create_index"),
+        ):
+            return VisionRagService(year=2025)
 
     async def test_returns_aggregated_results(self, service):
         """Search returns formatted, aggregated results."""
@@ -231,12 +240,8 @@ class TestSearch:
         assert "content_preview" in results[0]
 
     async def test_returns_empty_on_error(self, service):
-        """Search returns empty list on exception."""
-        with patch(
-            "hipeac_mcp.services.rags.base.BaseRagService.search",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("FAISS error"),
-        ):
+        """Search returns empty list when FAISS raises an exception."""
+        with patch.object(service, "_multi_query_search", new_callable=AsyncMock, side_effect=RuntimeError("FAISS")):
             results = await service.search("query")
 
         assert results == []
@@ -269,9 +274,11 @@ class TestSearchArticles:
 
         :returns: A VisionRagService instance.
         """
-        with patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"):
-            with patch.object(VisionRagService, "_load_or_create_index"):
-                return VisionRagService(year=2025)
+        with (
+            patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"),
+            patch.object(VisionRagService, "_load_or_create_index"),
+        ):
+            return VisionRagService(year=2025)
 
     async def test_returns_vision_search_response(self, service):
         """search_articles wraps search results into VisionSearchResponse."""
@@ -314,11 +321,13 @@ class TestIndexArticle:
 
         :returns: A VisionRagService instance.
         """
-        with patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator") as mock_gen_cls:
-            with patch.object(VisionRagService, "_load_or_create_index"):
-                svc = VisionRagService(year=2025)
-                svc.generator = mock_gen_cls.return_value
-                return svc
+        with (
+            patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator") as mock_gen_cls,
+            patch.object(VisionRagService, "_load_or_create_index"),
+        ):
+            svc = VisionRagService(year=2025)
+            svc.generator = mock_gen_cls.return_value
+            return svc
 
     async def test_indexes_article_chunks(self, service):
         """Article chunks are embedded and upserted."""
@@ -332,9 +341,11 @@ class TestIndexArticle:
             {"id": "2025_ai_chunk0", "content": "AI content.", "metadata": {"slug": "ai"}},
         ]
 
-        with patch.object(service, "generate_embedding", new_callable=AsyncMock, return_value=[0.1, 0.2]):
-            with patch.object(service, "upsert_documents", return_value=True) as mock_upsert:
-                result = await service.index_article(article)
+        with (
+            patch.object(service, "generate_embedding", new_callable=AsyncMock, return_value=[0.1, 0.2]),
+            patch.object(service, "upsert_documents", return_value=True) as mock_upsert,
+        ):
+            result = await service.index_article(article)
 
         assert result is True
         mock_upsert.assert_called_once()
@@ -362,3 +373,147 @@ class TestIndexArticle:
 
         result = await service.index_article(article)
         assert result is False
+
+
+class TestEnrichFromDatabase:
+    """Tests for _enrich_from_database."""
+
+    @staticmethod
+    def _make_async_iter(items):
+        """Return an object with __aiter__ that yields items.
+
+        :param items: Items to yield.
+        :returns: MagicMock with async iteration support.
+        """
+
+        async def _gen(self):
+            for item in items:
+                yield item
+
+        mock_qs = MagicMock()
+        mock_qs.__aiter__ = _gen
+        return mock_qs
+
+    @pytest.fixture
+    def service(self):
+        """Provide a VisionRagService with mocked dependencies.
+
+        :returns: A VisionRagService instance.
+        """
+        with (
+            patch("hipeac_mcp.services.rags.vision.service.VisionDocumentGenerator"),
+            patch.object(VisionRagService, "_load_or_create_index"),
+        ):
+            return VisionRagService(year=2025)
+
+    @patch("hipeac_mcp.services.rags.vision.service.ensure_connection_async", new_callable=AsyncMock)
+    async def test_enriches_summary_and_url(self, mock_conn, service):
+        """Aggregated entry is updated with summary and URL from the database."""
+        article = MagicMock()
+        article.slug = "ai"
+        article.is_aggregate = False
+        article.get_absolute_url.return_value = "/vision/2025/ai/"
+        article.get_summary.return_value = "About AI."
+        article.content_tree = {}
+
+        aggregated = {
+            "ai": {"slug": "ai", "vision_year": 2025, "similarity_score": 0.8, "chunks": [], "references": []}
+        }
+
+        with patch("hipeac_mcp.services.rags.vision.service.VisionArticle") as mock_cls:
+            mock_cls.objects.filter.return_value.select_related.return_value.only.return_value = self._make_async_iter(
+                [article]
+            )
+            await service._enrich_from_database(aggregated)
+
+        assert aggregated["ai"]["summary"] == "About AI."
+        assert "/vision/2025/ai/" in aggregated["ai"]["url"]
+
+    @patch("hipeac_mcp.services.rags.vision.service.ensure_connection_async", new_callable=AsyncMock)
+    async def test_applies_penalty_to_aggregate_articles(self, mock_conn, service):
+        """is_aggregate=True reduces the similarity score by AGGREGATE_SCORE_PENALTY."""
+        from hipeac_mcp.services.rags.vision.service import AGGREGATE_SCORE_PENALTY
+
+        article = MagicMock()
+        article.slug = "recs"
+        article.is_aggregate = True
+        article.get_absolute_url.return_value = "/vision/2025/recs/"
+        article.get_summary.return_value = ""
+        article.content_tree = {}
+
+        aggregated = {
+            "recs": {"slug": "recs", "vision_year": 2025, "similarity_score": 1.0, "chunks": [], "references": []}
+        }
+
+        with patch("hipeac_mcp.services.rags.vision.service.VisionArticle") as mock_cls:
+            mock_cls.objects.filter.return_value.select_related.return_value.only.return_value = self._make_async_iter(
+                [article]
+            )
+            await service._enrich_from_database(aggregated)
+
+        assert aggregated["recs"]["similarity_score"] == pytest.approx(AGGREGATE_SCORE_PENALTY)
+
+    @patch("hipeac_mcp.services.rags.vision.service.ensure_connection_async", new_callable=AsyncMock)
+    async def test_filters_references_to_cited_ones(self, mock_conn, service):
+        """Only references cited in the matched chunks are kept."""
+        article = MagicMock()
+        article.slug = "ai"
+        article.is_aggregate = False
+        article.get_absolute_url.return_value = "/vision/2025/ai/"
+        article.get_summary.return_value = ""
+        article.content_tree = {
+            "references": [
+                {"code": "RefA", "text": "Source A"},
+                {"code": "RefB", "text": "Source B"},
+            ]
+        }
+
+        aggregated = {
+            "ai": {
+                "slug": "ai",
+                "vision_year": 2025,
+                "similarity_score": 0.8,
+                "chunks": ["Text citing [RefA] but not RefB"],
+                "references": [],
+            }
+        }
+
+        with patch("hipeac_mcp.services.rags.vision.service.VisionArticle") as mock_cls:
+            mock_cls.objects.filter.return_value.select_related.return_value.only.return_value = self._make_async_iter(
+                [article]
+            )
+            await service._enrich_from_database(aggregated)
+
+        assert len(aggregated["ai"]["references"]) == 1
+        assert aggregated["ai"]["references"][0]["code"] == "RefA"
+
+    @patch("hipeac_mcp.services.rags.vision.service.ensure_connection_async", new_callable=AsyncMock)
+    async def test_skips_articles_not_in_aggregated(self, mock_conn, service):
+        """Articles returned by the DB query whose slug is not in aggregated are silently skipped."""
+        article = MagicMock()
+        article.slug = "unrelated"
+
+        aggregated = {
+            "ai": {"slug": "ai", "vision_year": 2025, "similarity_score": 0.8, "chunks": [], "references": []}
+        }
+
+        with patch("hipeac_mcp.services.rags.vision.service.VisionArticle") as mock_cls:
+            mock_cls.objects.filter.return_value.select_related.return_value.only.return_value = self._make_async_iter(
+                [article]
+            )
+            await service._enrich_from_database(aggregated)
+
+        assert "url" not in aggregated["ai"]
+
+    @patch(
+        "hipeac_mcp.services.rags.vision.service.ensure_connection_async",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("db down"),
+    )
+    async def test_silently_ignores_db_errors(self, mock_conn, service):
+        """DB errors during enrichment are caught — aggregated dict is left unchanged."""
+        aggregated = {"ai": {"slug": "ai", "vision_year": 2025, "similarity_score": 0.8, "chunks": []}}
+
+        await service._enrich_from_database(aggregated)
+
+        assert aggregated["ai"]["similarity_score"] == 0.8

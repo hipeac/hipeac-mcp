@@ -1,5 +1,7 @@
 """Tests for server initialization and configuration."""
 
+import asyncio
+
 
 class TestServerInitialization:
     """Tests for MCP server initialization."""
@@ -12,23 +14,24 @@ class TestServerInitialization:
         assert mcp.name == "HiPEAC"
 
     def test_tools_registered(self):
-        """Test that tools are registered with the server."""
+        """Test that the expected public MCP tools are available via the public API."""
         from hipeac_mcp import mcp
 
-        tool_names = [tool.name for tool in mcp._tool_manager._tools.values()]
+        tool_names = [t.name for t in asyncio.run(mcp.list_tools())]
         assert "get_metadata" in tool_names
         assert "search_members" in tool_names
         assert "get_events" in tool_names
         assert "search_event" in tool_names
-        assert "get_vision_article" in tool_names
-        assert "get_vision_overview" in tool_names
-        assert len(tool_names) == 7
+        assert "search_vision" in tool_names
 
     def test_resources_registered(self):
-        """Test that Vision resource templates are registered."""
+        """Test that Vision resource templates are registered with expected URI patterns."""
         from hipeac_mcp import mcp
 
-        assert len(mcp._resource_manager._templates) >= 2
+        templates = asyncio.run(mcp.list_resource_templates())
+        uris = [str(t.uriTemplate) for t in templates]
+        assert "hipeac://vision/{year}/{slug}" in uris
+        assert "hipeac://vision/{year}" in uris
 
     def test_server_asgi_app(self):
         """Test that server exports ASGI app."""

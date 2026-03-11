@@ -7,7 +7,7 @@ import pytest
 
 
 def make_async_iterator(items):
-    """Helper to create an async iterator from a list."""
+    """Create an async iterator from a list."""
 
     async def async_gen():
         for item in items:
@@ -35,7 +35,6 @@ class TestMetadataTool:
         required = [p for p in sig.parameters.values() if p.default is inspect.Parameter.empty]
         assert len(required) == 0
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.metadata.Metadata")
     async def test_get_metadata_returns_all_types(self, mock_metadata):
         """Test get_metadata always returns all metadata types."""
@@ -83,7 +82,6 @@ class TestMetadataTool:
         assert result.membership_types is not None
         assert len(result.membership_types) == 4
 
-    @pytest.mark.asyncio
     async def test_get_metadata_with_database(self):
         """Test get_metadata returns real data from database."""
         import os

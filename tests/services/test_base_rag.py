@@ -156,13 +156,23 @@ class TestSearch:
             assert "similarity_score" in result
 
     async def test_returns_empty_on_error(self, mock_faiss_paths, mock_embedding_provider):
-        """Search returns empty list on embedding error."""
+        """Search returns empty list when the embedding call fails on a non-empty index."""
         service = ConcreteRagService()
-        service.index = faiss.IndexFlatIP(128)
+        # Add a document so the index is non-empty (avoids the early ntotal==0 exit)
+        embeddings = np.random.rand(1, 128).tolist()
+        service.upsert_documents(["doc1"], ["content"], embeddings, [{}])
         mock_embedding_provider.generate_embedding = AsyncMock(side_effect=RuntimeError("API down"))
 
         results = await service.search("query")
         assert results == []
+
+    async def test_skips_invalid_faiss_indices(self, indexed_service, mock_embedding_provider):
+        """Idx == -1 entries returned by FAISS are silently skipped."""
+        # Request more results than the index contains — FAISS pads with -1
+        results = await indexed_service._faiss_search("query", limit=100)
+        # All three documents were indexed; none should be -1
+        assert len(results) == 3
+        assert all(r["id"] != -1 for r in results)
 
 
 class TestResetIndex:
@@ -190,6 +200,13 @@ class TestResetIndex:
 
         assert result is True
         assert service.index is None
+
+    def test_returns_false_on_error(self, mock_faiss_paths, mock_embedding_provider):
+        """reset_index returns False when an internal error occurs."""
+        service = ConcreteRagService()
+        with patch.object(service, "_update_cache", side_effect=RuntimeError("cache failure")):
+            result = service.reset_index()
+        assert result is False
 
 
 class TestSaveAndLoad:

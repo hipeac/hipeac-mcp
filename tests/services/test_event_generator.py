@@ -1,6 +1,7 @@
 """Tests for EventDocumentGenerator."""
 
-from datetime import date
+from datetime import date, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -411,3 +412,217 @@ class TestSplitSection:
 
         assert len(result) == 3
         assert all(len(chunk) <= 200 for chunk in result)
+
+
+def _make_async_iterator(items: list) -> MagicMock:
+    """Create an async iterable from a list of items.
+
+    :param items: Items to yield.
+    :returns: MagicMock with ``__aiter__`` that yields each item.
+    """
+
+    async def _iter(self):
+        for item in items:
+            yield item
+
+    mock_qs = MagicMock()
+    mock_qs.__aiter__ = _iter
+    return mock_qs
+
+
+class TestFormatRegistrationDeadlineBranches:
+    """Tests for the optional deadline branches in _format_registration."""
+
+    def test_includes_early_registration_deadline(self, generator):
+        """Early registration deadline is shown when set."""
+        event = _make_event()
+        event.config = {}
+        event.registration_start_date = None
+        event.registration_early_deadline = datetime(2025, 11, 30, 23, 59)
+        event.registration_deadline = None
+
+        result = generator._format_registration(event)
+
+        assert "Early registration deadline" in result
+        assert "November" in result
+
+    def test_includes_registration_deadline(self, generator):
+        """Registration deadline is shown when set."""
+        event = _make_event()
+        event.config = {}
+        event.registration_start_date = None
+        event.registration_early_deadline = None
+        event.registration_deadline = datetime(2025, 12, 31, 23, 59)
+
+        result = generator._format_registration(event)
+
+        assert "Registration deadline" in result
+        assert "December" in result
+
+
+class TestGenerateChunks:
+    """Tests for generate_chunks (the top-level async orchestrator)."""
+
+    @patch("hipeac_mcp.services.rags.events.generator.ensure_connection_async", new_callable=AsyncMock)
+    async def test_combines_overview_and_activity_chunks(self, mock_conn, generator):
+        """generate_chunks returns overview and activity chunks combined."""
+        activity_chunk = {"id": "activity_chunk0", "content": "header\n\nActivity.", "metadata": {}}
+
+        event = _make_event()
+        event.id = 1
+        event.city = "Brussels"
+        event.country = "BE"
+        event.description = ""
+
+        with (
+            patch.object(generator, "_generate_overview_document", new_callable=AsyncMock) as mock_overview,
+            patch.object(generator, "_generate_activity_documents", new_callable=AsyncMock) as mock_activities,
+        ):
+            mock_overview.return_value = ("Event Header", ["Overview section."])
+            mock_activities.return_value = [activity_chunk]
+
+            result = await generator.generate_chunks(event)
+
+        assert len(result) >= 1
+        mock_conn.assert_awaited_once()
+        mock_overview.assert_awaited_once_with(event)
+        mock_activities.assert_awaited_once_with(event)
+
+    @patch("hipeac_mcp.services.rags.events.generator.ensure_connection_async", new_callable=AsyncMock)
+    async def test_virtual_event_has_empty_country(self, mock_conn, generator):
+        """Virtual events produce empty country and 'Virtual' city in chunk metadata."""
+        event = _make_event()
+        event.id = 2
+        event.is_virtual = True
+        event.city = "Online"
+        event.country = "XX"
+        event.description = ""
+
+        with (
+            patch.object(generator, "_generate_overview_document", new_callable=AsyncMock) as mock_overview,
+            patch.object(generator, "_generate_activity_documents", new_callable=AsyncMock) as mock_activities,
+        ):
+            mock_overview.return_value = ("Header", [])
+            mock_activities.return_value = []
+
+            result = await generator.generate_chunks(event)
+
+        assert result[0]["metadata"]["event_city"] == "Virtual"
+        assert result[0]["metadata"]["event_country"] == ""
+
+
+class TestGenerateOverviewDocument:
+    """Tests for _generate_overview_document."""
+
+    @patch("hipeac_mcp.services.rags.events.generator.ensure_connection_async", new_callable=AsyncMock)
+    async def test_builds_header_from_event_fields(self, mock_conn, generator):
+        """Header contains event name, type, location and dates."""
+        event = _make_event()
+        event.city = "Brussels"
+        event.country = "BE"
+        event.description = ""
+        event.logistics = ""
+        event.registration_start_date = None
+        event.registration_early_deadline = None
+        event.registration_deadline = None
+        event.config = {}
+
+        with (
+            patch.object(generator, "_format_venues", new_callable=AsyncMock, return_value=""),
+            patch.object(generator, "_format_schedule_summary", new_callable=AsyncMock, return_value=""),
+        ):
+            header, sections = await generator._generate_overview_document(event)
+
+        assert "conference" in header.lower()
+        assert "Brussels, BE" in header
+        assert "January" in header
+
+    @patch("hipeac_mcp.services.rags.events.generator.ensure_connection_async", new_callable=AsyncMock)
+    async def test_includes_description_section(self, mock_conn, generator):
+        """A non-empty event description is included as a section."""
+        event = _make_event()
+        event.city = "Brussels"
+        event.country = "BE"
+        event.description = "This is a very important conference."
+        event.logistics = ""
+        event.registration_start_date = None
+        event.registration_early_deadline = None
+        event.registration_deadline = None
+        event.config = {}
+
+        with (
+            patch.object(generator, "_format_venues", new_callable=AsyncMock, return_value=""),
+            patch.object(generator, "_format_schedule_summary", new_callable=AsyncMock, return_value=""),
+        ):
+            _, sections = await generator._generate_overview_document(event)
+
+        assert any("very important conference" in s for s in sections)
+
+    @patch("hipeac_mcp.services.rags.events.generator.ensure_connection_async", new_callable=AsyncMock)
+    async def test_virtual_event_header_says_virtual(self, mock_conn, generator):
+        """Virtual events are labelled 'Virtual (online)' rather than city."""
+        event = _make_event()
+        event.is_virtual = True
+        event.city = "Online"
+        event.country = ""
+        event.description = ""
+        event.logistics = ""
+        event.registration_start_date = None
+        event.registration_early_deadline = None
+        event.registration_deadline = None
+        event.config = {}
+
+        with (
+            patch.object(generator, "_format_venues", new_callable=AsyncMock, return_value=""),
+            patch.object(generator, "_format_schedule_summary", new_callable=AsyncMock, return_value=""),
+        ):
+            header, _ = await generator._generate_overview_document(event)
+
+        assert "Virtual (online)" in header
+        assert "Online" not in header.split("Location:")[1] if "Location:" in header else True
+
+
+class TestGenerateActivityDocuments:
+    """Tests for _generate_activity_documents."""
+
+    async def test_returns_empty_for_no_activities(self, generator):
+        """No activities produces an empty chunk list."""
+        event = MagicMock(spec=Event)
+        event.activities.prefetch_related.return_value.order_by.return_value = _make_async_iterator([])
+
+        result = await generator._generate_activity_documents(event)
+
+        assert result == []
+
+    async def test_generates_chunks_for_each_activity(self, generator):
+        """One chunk group is produced per activity."""
+        event = MagicMock(spec=Event)
+        event.id = 1
+        event.name = "HiPEAC 2025"
+        event.year = 2025
+        event.slug = "hipeac-2025"
+        event.type = Event.CONFERENCE
+
+        activity = MagicMock()
+        activity.id = 10
+        activity.slug = "keynote-1"
+        activity.title = "Opening Keynote"
+        activity.type_id = None
+        activity.room_id = None
+        activity.description = ""
+        activity.ai_summary = ""
+        activity.get_absolute_url.return_value = "/2025/hipeac-2025/#/session/10/"
+        activity.sessions.all.return_value = _make_async_iterator([])
+
+        event.activities.prefetch_related.return_value.order_by.return_value = _make_async_iterator([activity])
+
+        with (
+            patch.object(generator, "_fetch_metadata", new_callable=AsyncMock, return_value={}),
+            patch.object(generator, "_fetch_activity_users", new_callable=AsyncMock, return_value={}),
+            patch.object(generator, "_fetch_users_and_institutions", new_callable=AsyncMock, return_value=({}, {})),
+            patch.object(generator, "_fetch_rooms", new_callable=AsyncMock, return_value={}),
+        ):
+            result = await generator._generate_activity_documents(event)
+
+        assert len(result) >= 1
+        assert result[0]["metadata"]["activity_id"] == 10

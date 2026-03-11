@@ -6,7 +6,6 @@ import time
 import pytest
 
 
-@pytest.mark.asyncio
 async def test_benchmark_metadata_retrieval():
     """Benchmark the optimized get_metadata function with single query."""
     if not os.environ.get("DATABASE_URL"):

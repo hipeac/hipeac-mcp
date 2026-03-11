@@ -206,3 +206,47 @@ class TestCleanMarkdown:
         """Various markdown patterns are cleaned correctly."""
         result = VisionDocumentGenerator._clean_markdown(input_text)
         assert result == expected
+
+
+class TestChunksFromContentFallback:
+    """Tests for _chunks_from_content (markdown string fallback path)."""
+
+    @pytest.fixture
+    def article_no_tree(self):
+        """Create a mock article with no content_tree (forces markdown fallback).
+
+        :returns: Mock article with empty content_tree.
+        """
+        from unittest.mock import MagicMock
+
+        article = MagicMock()
+        article.title = "Fallback Article"
+        article.slug = "fallback"
+        article.section.name = "Chapters"
+        article.section.vision.year = 2025
+        article.content_tree = {}
+        return article
+
+    def test_empty_content_returns_no_chunks(self, article_no_tree):
+        """Empty markdown content produces no chunks."""
+        article_no_tree.content = ""
+        generator = VisionDocumentGenerator(chunk_size=200)
+        chunks = generator.generate_chunks(article_no_tree)
+        assert chunks == []
+
+    def test_short_content_produces_one_chunk(self, article_no_tree):
+        """Content shorter than chunk_size produces exactly one chunk."""
+        article_no_tree.content = "Short text."
+        generator = VisionDocumentGenerator(chunk_size=500)
+        chunks = generator.generate_chunks(article_no_tree)
+        assert len(chunks) == 1
+        assert "Short text" in chunks[0]["content"]
+
+    def test_long_content_produces_multiple_chunks(self, article_no_tree):
+        """Content exceeding chunk_size is split into multiple chunks."""
+        # Build content long enough to guarantee splitting at a small chunk_size
+        sentences = ["The future of computing is bright. "] * 20
+        article_no_tree.content = "".join(sentences)
+        generator = VisionDocumentGenerator(chunk_size=80)
+        chunks = generator.generate_chunks(article_no_tree)
+        assert len(chunks) > 1

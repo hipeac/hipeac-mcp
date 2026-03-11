@@ -128,9 +128,10 @@ class TestCheckReindexSignals:
         assert result == {"reindexed": [2025, 100], "failed": []}
 
     @patch("hipeac_mcp.tasks._reindex_vision_year", new_callable=MagicMock)
+    @patch("hipeac_mcp.tasks._reindex_event", new_callable=MagicMock)
     @patch("hipeac_mcp.tasks._drain_redis_list")
     @patch("hipeac_mcp.tasks.asyncio")
-    def test_reports_failed_reindex(self, mock_asyncio, mock_drain, mock_reindex):
+    def test_reports_failed_reindex(self, mock_asyncio, mock_drain, mock_reindex_event, mock_reindex_vision):
         """Failed reindexes are reported in the result."""
         mock_drain.side_effect = [{2025}, set()]
         mock_asyncio.run.side_effect = RuntimeError("Embedding service down")
@@ -138,6 +139,18 @@ class TestCheckReindexSignals:
         result = check_reindex_signals.call_local()
 
         assert result == {"reindexed": [], "failed": [2025]}
+
+    @patch("hipeac_mcp.tasks._reindex_event", new_callable=MagicMock)
+    @patch("hipeac_mcp.tasks._drain_redis_list")
+    @patch("hipeac_mcp.tasks.asyncio")
+    def test_reports_failed_event_reindex(self, mock_asyncio, mock_drain, mock_reindex):
+        """A failing event reindex is captured in the failed list."""
+        mock_drain.side_effect = [set(), {100}]
+        mock_asyncio.run.side_effect = RuntimeError("Event DB error")
+
+        result = check_reindex_signals.call_local()
+
+        assert result == {"reindexed": [], "failed": [100]}
 
 
 class TestReindexVisionYear:
@@ -170,6 +183,33 @@ class TestReindexVisionYear:
 
         mock_service.reset_index.assert_called_once()
         mock_service.index_article.assert_awaited_once_with(mock_article)
+
+    @patch("hipeac_mcp.tasks.VisionRagService")
+    @patch("hipeac_mcp.tasks.VisionArticle")
+    @patch("hipeac_mcp.tasks.ensure_connection_async")
+    async def test_continues_after_article_indexing_failure(self, mock_ensure, mock_article_cls, mock_service_cls):
+        """An error indexing one article is logged and the loop continues."""
+        mock_service = MagicMock()
+        mock_service.index_article = AsyncMock(side_effect=RuntimeError("embedding failed"))
+        mock_service_cls.return_value = mock_service
+
+        failing_article = MagicMock()
+        failing_article.slug = "bad-article"
+
+        mock_qs = MagicMock()
+        mock_qs.select_related.return_value = mock_qs
+
+        async def async_iter(*_args, **_kwargs):
+            yield failing_article
+
+        mock_qs.__aiter__ = async_iter
+        mock_article_cls.objects.filter.return_value = mock_qs
+
+        with patch("hipeac_mcp.tasks.sync_to_async", return_value=AsyncMock(return_value=1)):
+            await _reindex_vision_year(2025)
+
+        # Loop completed without raising; service was still reset
+        mock_service.reset_index.assert_called_once()
 
 
 class TestReindexEvent:
@@ -209,6 +249,8 @@ class TestReindexEvent:
         mock_service.index_event = AsyncMock(return_value=False)
         mock_service_cls.return_value = mock_service
 
-        with patch("hipeac_mcp.tasks.sync_to_async", return_value=AsyncMock(return_value=mock_event)):
-            with pytest.raises(RuntimeError, match="reindex failed"):
-                await _reindex_event(100)
+        with (
+            patch("hipeac_mcp.tasks.sync_to_async", return_value=AsyncMock(return_value=mock_event)),
+            pytest.raises(RuntimeError, match="reindex failed"),
+        ):
+            await _reindex_event(100)

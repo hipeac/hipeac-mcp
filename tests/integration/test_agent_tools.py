@@ -21,8 +21,8 @@ import pytest
 
 agents = pytest.importorskip("agents", reason="openai-agents not installed")
 
-from agents import Agent, Runner
-from agents.mcp import MCPServerStreamableHttp
+from agents import Agent, Runner  # noqa: E402
+from agents.mcp import MCPServerStreamableHttp  # noqa: E402
 
 
 TEST_TIMEOUT_SECONDS = 60

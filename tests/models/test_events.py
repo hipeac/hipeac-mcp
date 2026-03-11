@@ -6,7 +6,11 @@ from hipeac_mcp.models.events import (
     Activity,
     Event,
     EventInstitution,
+    EventMetadata,
     EventUser,
+    Place,
+    Room,
+    Session,
     activity_ct_id,
     event_ct_id,
     user_ct_id,
@@ -27,6 +31,14 @@ def _make_event(event_type: str, month: int = 1) -> Event:
     event.start_date = date(2025, month, 15)
     event.end_date = date(2025, month, 20)
     return event
+
+
+class TestEventStr:
+    """Tests for Event.__str__."""
+
+    def test_str_delegates_to_name(self):
+        """__str__ returns the computed name."""
+        assert str(_make_event(Event.ACACES)) == "ACACES 2025"
 
 
 class TestEventName:
@@ -145,6 +157,63 @@ class TestContentTypeHelpers:
         """user_ct_id delegates to get_content_type_id."""
         monkeypatch.setattr("hipeac_mcp.models.events.get_content_type_id", lambda a, m: 25)
         assert user_ct_id() == 25
+
+
+class TestPlaceStr:
+    """Tests for Place.__str__."""
+
+    def test_str_returns_place_name(self):
+        """__str__ returns the place name."""
+        place = Place(name="ICE Kraków")
+        assert str(place) == "ICE Kraków"
+
+
+class TestRoomStr:
+    """Tests for Room.__str__."""
+
+    def test_str_returns_room_name(self):
+        """__str__ returns the room name."""
+        room = Room.__new__(Room)
+        room.name = "Auditorium"
+        assert str(room) == "Auditorium"
+
+
+class TestActivityStr:
+    """Tests for Activity.__str__."""
+
+    def test_str_returns_title(self):
+        """__str__ returns the activity title."""
+        activity = Activity.__new__(Activity)
+        activity.title = "RISC-V Tutorial"
+        assert str(activity) == "RISC-V Tutorial"
+
+
+class TestSessionStr:
+    """Tests for Session.__str__."""
+
+    def test_str_returns_title_when_set(self):
+        """__str__ returns the session title when it is non-empty."""
+        session = Session.__new__(Session)
+        session.title = "Morning Session"
+        session.id = 5
+        assert str(session) == "Morning Session"
+
+    def test_str_falls_back_to_session_id(self):
+        """__str__ returns 'Session N' when title is empty."""
+        session = Session.__new__(Session)
+        session.title = ""
+        session.id = 8
+        assert str(session) == "Session 8"
+
+
+class TestEventMetadataStr:
+    """Tests for EventMetadata.__str__."""
+
+    def test_str_returns_value(self):
+        """__str__ returns the metadata value."""
+        metadata = EventMetadata.__new__(EventMetadata)
+        metadata.value = "Workshop"
+        assert str(metadata) == "Workshop"
 
 
 class TestDbTableNames:
