@@ -5,6 +5,7 @@ import os
 
 import sentry_sdk
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import Icon
 from mcp.server.transport_security import TransportSecuritySettings
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.mcp import MCPIntegration
@@ -42,9 +43,7 @@ sentry_sdk.init(
 setup_django()
 
 
-server_instructions = """
-This MCP server provides network analysis and member discovery tools for the HiPEAC community.
-"""
+server_instructions = "Access the HiPEAC research network: Vision strategic documents, network members, and events."
 
 transport_security = TransportSecuritySettings(
     enable_dns_rebinding_protection=True,
@@ -55,6 +54,13 @@ mcp = FastMCP(
     "HiPEAC",
     streamable_http_path="/",
     instructions=server_instructions,
+    website_url="https://www.hipeac.net/mcp/",
+    icons=[
+        Icon(
+            src="https://www.hipeac.net/static/images/hipeac--icon.png",
+            mimeType="image/png",
+        )
+    ],
     transport_security=transport_security,
 )
 
