@@ -206,7 +206,7 @@ async def search_members(
                 username=user.username,
                 first_name=user.first_name,
                 last_name=user.last_name,
-                profile_url=HttpUrl(f"https://www.hipeac.net/~{user.username}/"),
+                profile_url=HttpUrl(f"https://www.hipeac.net/~{user.handle}/"),
                 institutions=institutions if institutions else None,
                 topics=topics,
                 application_areas=application_areas,

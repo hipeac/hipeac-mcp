@@ -3,11 +3,9 @@
 import inspect
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-import pytest
-
 
 def make_async_iterator(items):
-    """Helper to create an async iterator from a list."""
+    """Create an async iterator from a list."""
 
     async def async_gen():
         for item in items:
@@ -25,7 +23,6 @@ class TestMemberTools:
 
         assert callable(search_members)
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
@@ -54,7 +51,6 @@ class TestMemberTools:
         assert result.total == 0
         assert result.members == []
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
@@ -74,6 +70,7 @@ class TestMemberTools:
         mock_member.first_name = "Jane"
         mock_member.last_name = "Smith"
         mock_member.username = "jsmith"
+        mock_member.handle = "jsmith"
         mock_member.profile.institution.name = "Test University"
         mock_member.profile.institution.country = "BE"
 
@@ -113,7 +110,6 @@ class TestMemberTools:
         assert result.members[0].username == "jsmith"
         assert str(result.members[0].profile_url) == "https://www.hipeac.net/~jsmith/"
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
@@ -150,7 +146,6 @@ class TestMemberTools:
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -184,7 +179,6 @@ class TestMemberTools:
         mock_rel_inst.objects.filter.assert_called()
         mock_qs.filter.assert_called()
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -214,7 +208,6 @@ class TestMemberTools:
         call_args = mock_qs.__getitem__.call_args
         assert call_args[0][0].stop == 100
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
@@ -251,7 +244,6 @@ class TestMemberTools:
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
@@ -288,7 +280,6 @@ class TestMemberTools:
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
@@ -322,7 +313,6 @@ class TestMemberTools:
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
 
-    @pytest.mark.asyncio
     @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
@@ -412,3 +402,69 @@ class TestMemberModels:
         from hipeac_mcp.models import RelInstitution
 
         assert RelInstitution is not None
+
+
+class TestEnsureMetadataCache:
+    """Tests for the _ensure_metadata_cache helper."""
+
+    async def test_returns_early_when_already_populated(self):
+        """Does not query the database when the cache is already warm."""
+        from hipeac_mcp.tools.members import _ensure_metadata_cache, _metadata_cache
+
+        _metadata_cache["topic"] = {1: MagicMock()}  # pre-warm the cache
+        try:
+            with patch("hipeac_mcp.tools.members.ensure_connection_async", new_callable=AsyncMock) as mock_conn:
+                await _ensure_metadata_cache()
+            mock_conn.assert_not_called()
+        finally:
+            _metadata_cache.clear()
+
+
+class TestSearchMembersWithActiveMembership:
+    """Tests that the active membership branch is reached."""
+
+    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.RelInstitution")
+    @patch("hipeac_mcp.tools.members.RelTopic")
+    @patch("hipeac_mcp.tools.members.RelApplicationArea")
+    @patch("hipeac_mcp.tools.members.User")
+    @patch("hipeac_mcp.tools.members.ContentType")
+    async def test_includes_active_membership_in_result(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst, mock_cache
+    ):
+        """Member with an active membership has the membership field set."""
+        from hipeac_mcp.tools.members import search_members
+
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
+
+        mock_membership = MagicMock()
+        mock_membership.type = "member"
+
+        mock_member = Mock()
+        mock_member.id = 1
+        mock_member.first_name = "Anna"
+        mock_member.last_name = "Doe"
+        mock_member.username = "adoe"
+        mock_member.handle = "adoe"
+
+        active_memberships = MagicMock()
+        active_memberships.__aiter__ = lambda self: make_async_iterator([mock_membership])
+        mock_member.memberships.filter.return_value = active_memberships
+
+        mock_qs = MagicMock()
+        mock_qs.distinct.return_value = mock_qs
+        mock_qs.select_related.return_value = mock_qs
+        mock_qs.prefetch_related.return_value = mock_qs
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([mock_member])
+        mock_user.objects.filter.return_value = mock_qs
+
+        for rel_mock in [mock_rel_inst, mock_rel_topic, mock_rel_area]:
+            result_qs = MagicMock()
+            result_qs.__aiter__ = lambda self: make_async_iterator([])
+            rel_mock.objects.filter.return_value.select_related.return_value = result_qs
+
+        result = await search_members(query="Anna")
+
+        assert result.total == 1
+        assert result.members[0].membership == "member"

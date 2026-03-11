@@ -7,6 +7,7 @@ class User(models.Model):
     """User model (read-only)."""
 
     username = models.CharField(max_length=150, unique=True)
+    handle = models.CharField(max_length=150, unique=True)
     email = models.EmailField()
     first_name = models.CharField(max_length=150)
     last_name = models.CharField(max_length=150)
