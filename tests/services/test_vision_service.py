@@ -374,6 +374,26 @@ class TestIndexArticle:
         result = await service.index_article(article)
         assert result is False
 
+    async def test_returns_false_when_no_chunks_generated(self, service):
+        """Empty chunk list skips upsert and returns False without raising IndexError.
+
+        Regression test for HIPEAC-MCP-15: np.array([]) produces a 1D array
+        so vectors.shape[1] raises IndexError: tuple index out of range.
+        """
+        article = MagicMock()
+        article.slug = "empty"
+        article.pk = 3
+        article.section.vision.year = 2025
+
+        service.generator.should_index_article.return_value = True
+        service.generator.generate_chunks.return_value = []
+
+        with patch.object(service, "upsert_documents") as mock_upsert:
+            result = await service.index_article(article)
+
+        assert result is False
+        mock_upsert.assert_not_called()
+
 
 class TestEnrichFromDatabase:
     """Tests for _enrich_from_database."""

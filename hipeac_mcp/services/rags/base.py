@@ -181,6 +181,10 @@ class BaseRagService:
         :returns: True if successful, False otherwise.
         """
         try:
+            if not embeddings:
+                logger.warning(f"upsert_documents called with empty embeddings for '{self.COLLECTION_NAME}'")
+                return False
+
             vectors = np.array(embeddings, dtype=np.float32)
 
             if self.index is None:

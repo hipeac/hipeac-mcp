@@ -323,6 +323,10 @@ class VisionRagService(BaseRagService):
 
             chunk_dicts = self.generator.generate_chunks(article)
 
+            if not chunk_dicts:
+                logger.warning(f"No chunks generated for vision article {article.pk}")
+                return False
+
             ids = [chunk["id"] for chunk in chunk_dicts]
             documents = [chunk["content"] for chunk in chunk_dicts]
             metadatas = [chunk["metadata"] for chunk in chunk_dicts]
