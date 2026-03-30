@@ -53,6 +53,7 @@ def _preload_content_types() -> None:
 
 # MySQL error codes that indicate a dropped or broken connection.
 _MYSQL_RECONNECT_CODES = {
+    2002,  # CR_CONNECTION_ERROR – can't connect (TCP timeout / server briefly unreachable)
     2006,  # CR_SERVER_GONE_ERROR – server has gone away
     2026,  # CR_SSL_CONNECTION_ERROR – TLS/SSL error (unexpected EOF, etc.)
 }

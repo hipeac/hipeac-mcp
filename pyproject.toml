@@ -24,7 +24,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "deadcode",
   "memray",
   "openai-agents",
   "pytest",
