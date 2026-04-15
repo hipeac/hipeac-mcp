@@ -133,7 +133,7 @@ async def search_members(
         queryset = queryset.filter(memberships__type__in=membership_types)
 
     actual_limit = min(limit, 100)
-    members = [m async for m in queryset.select_related().prefetch_related("memberships")[:actual_limit]]
+    members = [m async for m in queryset.prefetch_related("memberships")[:actual_limit]]
 
     if not members:
         return MemberSearchResponse(total=0, limit=actual_limit, members=[])
@@ -141,18 +141,29 @@ async def search_members(
     # Ensure metadata cache is populated
     await _ensure_metadata_cache()
 
-    # Build structured member profiles
+    # Batch-fetch all related data for the returned members in 3 queries instead of N×3.
+    user_ids = [user.id for user in members]
+
+    institutions_by_user: dict[int, list] = {uid: [] for uid in user_ids}
+    async for rel in RelInstitution.objects.filter(content_type=user_ct, object_id__in=user_ids).select_related(
+        "institution"
+    ):
+        institutions_by_user[rel.object_id].append(rel)  # type: ignore
+
+    topics_by_user: dict[int, list] = {uid: [] for uid in user_ids}
+    async for rel in RelTopic.objects.filter(content_type=user_ct, object_id__in=user_ids).select_related("topic"):
+        topics_by_user[rel.object_id].append(rel)  # type: ignore
+
+    areas_by_user: dict[int, list] = {uid: [] for uid in user_ids}
+    async for rel in RelApplicationArea.objects.filter(content_type=user_ct, object_id__in=user_ids).select_related(
+        "application_area"
+    ):
+        areas_by_user[rel.object_id].append(rel)  # type: ignore
+
+    # Build structured member profiles using the batched data.
     member_profiles = []
 
     for user in members:
-        # Fetch institutions
-        rel_institutions = [
-            rel
-            async for rel in RelInstitution.objects.filter(
-                content_type=user_ct,
-                object_id=user.id,  # type: ignore
-            ).select_related("institution")
-        ]
         institutions = [
             Institution(
                 name=rel.institution.name,
@@ -163,43 +174,26 @@ async def search_members(
                     else None
                 ),
             )
-            for rel in rel_institutions
+            for rel in institutions_by_user[user.id]  # type: ignore
         ]
 
-        # Fetch topics with metadata
-        rel_topics = [
-            rel
-            async for rel in RelTopic.objects.filter(content_type=user_ct, object_id=user.id).select_related(  # type: ignore
-                "topic"
-            )
-        ]
         topics_list = [
             item
-            for rel in rel_topics
+            for rel in topics_by_user[user.id]  # type: ignore
             if (item := _get_metadata_item("topic", rel.topic_id)) is not None  # type: ignore
         ]
         topics = topics_list if topics_list else None
 
-        # Fetch application areas with metadata
-        rel_areas = [
-            rel
-            async for rel in RelApplicationArea.objects.filter(
-                content_type=user_ct,
-                object_id=user.id,  # type: ignore
-            ).select_related("application_area")
-        ]
         areas_list = [
             item
-            for rel in rel_areas
+            for rel in areas_by_user[user.id]  # type: ignore
             if (item := _get_metadata_item("application_area", rel.application_area_id)) is not None  # type: ignore
         ]
         application_areas = areas_list if areas_list else None
 
-        # Fetch active membership (only one active membership per user)
-        membership = None
-        async for m in user.memberships.filter(end_date__isnull=True):  # type: ignore
-            membership = MembershipType(m.type)
-            break  # Only take the first active membership
+        # Use the prefetched memberships cache — avoid re-querying with .filter().
+        active = next((m for m in user.memberships.all() if m.end_date is None), None)  # type: ignore
+        membership = MembershipType(active.type) if active else None
 
         member_profiles.append(
             Member(

@@ -74,10 +74,8 @@ class TestMemberTools:
         mock_member.profile.institution.name = "Test University"
         mock_member.profile.institution.country = "BE"
 
-        # Mock memberships.filter() to return async iterator
-        mock_memberships = MagicMock()
-        mock_memberships.__aiter__ = lambda self: make_async_iterator([])
-        mock_member.memberships.filter.return_value = mock_memberships
+        # Mock memberships.all() to return a sync iterable (prefetch cache)
+        mock_member.memberships.all.return_value = []
 
         mock_qs = MagicMock()
         mock_qs.distinct.return_value = mock_qs
@@ -439,6 +437,7 @@ class TestSearchMembersWithActiveMembership:
 
         mock_membership = MagicMock()
         mock_membership.type = "member"
+        mock_membership.end_date = None
 
         mock_member = Mock()
         mock_member.id = 1
@@ -447,9 +446,8 @@ class TestSearchMembersWithActiveMembership:
         mock_member.username = "adoe"
         mock_member.handle = "adoe"
 
-        active_memberships = MagicMock()
-        active_memberships.__aiter__ = lambda self: make_async_iterator([mock_membership])
-        mock_member.memberships.filter.return_value = active_memberships
+        # Mock memberships.all() to return a sync iterable (prefetch cache)
+        mock_member.memberships.all.return_value = [mock_membership]
 
         mock_qs = MagicMock()
         mock_qs.distinct.return_value = mock_qs
