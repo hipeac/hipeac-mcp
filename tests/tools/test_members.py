@@ -305,9 +305,11 @@ class TestMemberTools:
 
         result = await search_members(membership_types=["member", "associated_member"])
 
-        assert mock_qs.filter.call_count == 1
-        call_args = mock_qs.filter.call_args
-        assert "memberships__type__in" in str(call_args)
+        # membership_types is now part of the initial User.objects.filter() call, not a chained .filter()
+        base_call_kwargs = mock_user.objects.filter.call_args.kwargs
+        assert "memberships__type__in" in base_call_kwargs
+        assert "member" in base_call_kwargs["memberships__type__in"]
+        assert "associated_member" in base_call_kwargs["memberships__type__in"]
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
 
@@ -346,6 +348,92 @@ class TestMemberTools:
         mock_rel_topic.objects.filter.assert_called()
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
+
+    @patch("hipeac_mcp.tools.members.RelInstitution")
+    @patch("hipeac_mcp.tools.members.RelTopic")
+    @patch("hipeac_mcp.tools.members.RelApplicationArea")
+    @patch("hipeac_mcp.tools.members.User")
+    @patch("hipeac_mcp.tools.members.ContentType")
+    async def test_search_members_empty_topic_filter_does_not_bypass(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst
+    ):
+        """Regression: when topic_ids matches 0 users, the filter must still be applied.
+
+        Previously, `if topic_user_ids:` was False when the list was empty, so the
+        filter was skipped and the full (country-filtered) member list was returned
+        instead of an empty result set.
+        """
+        from hipeac_mcp.tools.members import search_members
+
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
+
+        # No users have this topic — the filter must still be applied (returning empty set).
+        mock_topic_qs = MagicMock()
+        mock_topic_values = MagicMock()
+        mock_topic_values.__aiter__ = lambda self: make_async_iterator([])  # zero matches
+        mock_topic_qs.values_list.return_value = mock_topic_values
+        mock_rel_topic.objects.filter.return_value = mock_topic_qs
+
+        # German members do exist — these should NOT appear in the result.
+        mock_inst_qs = MagicMock()
+        mock_inst_values = MagicMock()
+        mock_inst_values.__aiter__ = lambda self: make_async_iterator([10, 11, 12])
+        mock_inst_qs.values_list.return_value = mock_inst_values
+        mock_rel_inst.objects.filter.return_value = mock_inst_qs
+
+        # Track each filter call's return value separately so we can assert the
+        # final queryset slice returns nothing.
+        filtered_qs_after_topic = MagicMock()
+        filtered_qs_after_topic.filter.return_value = filtered_qs_after_topic
+        filtered_qs_after_topic.prefetch_related.return_value = filtered_qs_after_topic
+        filtered_qs_after_topic.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
+
+        mock_qs = MagicMock()
+        mock_qs.distinct.return_value = mock_qs
+        mock_qs.filter.return_value = filtered_qs_after_topic  # first filter (topic) returns new qs
+        mock_user.objects.filter.return_value = mock_qs
+
+        result = await search_members(topic_ids=[42], countries=["DE"])
+
+        # topic filter must have been applied (filter called on the base queryset)
+        mock_qs.filter.assert_called_once()
+        assert result.total == 0
+        assert result.members == []
+
+    @patch("hipeac_mcp.tools.members.RelInstitution")
+    @patch("hipeac_mcp.tools.members.RelTopic")
+    @patch("hipeac_mcp.tools.members.RelApplicationArea")
+    @patch("hipeac_mcp.tools.members.User")
+    @patch("hipeac_mcp.tools.members.ContentType")
+    async def test_search_members_excludes_affiliated_phd_by_default(
+        self, mock_ct, mock_user, mock_rel_area, mock_rel_topic, mock_rel_inst
+    ):
+        """affiliated_phd must not appear in default search results.
+
+        The base queryset should filter memberships__type__in to only include
+        member, associated_member, and affiliated_member unless the caller
+        explicitly passes membership_types.
+        """
+        from hipeac_mcp.schemas.metadata import MembershipType
+        from hipeac_mcp.tools.members import search_members
+
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
+
+        mock_qs = MagicMock()
+        mock_qs.distinct.return_value = mock_qs
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.prefetch_related.return_value = mock_qs
+        mock_qs.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
+        mock_user.objects.filter.return_value = mock_qs
+
+        await search_members()
+
+        call_kwargs = mock_user.objects.filter.call_args.kwargs
+        types_used = call_kwargs.get("memberships__type__in", [])
+        assert MembershipType.MEMBER in types_used
+        assert MembershipType.ASSOCIATED_MEMBER in types_used
+        assert MembershipType.AFFILIATED_MEMBER in types_used
+        assert MembershipType.AFFILIATED_PHD not in types_used
 
     def test_search_members_parameter_types(self):
         """Test search_members accepts correct parameter types."""
