@@ -47,3 +47,10 @@ class VisionSearchResponse(BaseModel):
     query: str = Field(..., description="The search query used")
     total_results: int = Field(..., description="Total number of articles found")
     articles: list[VisionArticleResult] = Field(..., description="Matching Vision articles ranked by relevance")
+    is_fallback: bool = Field(
+        default=False,
+        description="True when results were returned using a lower similarity threshold. "
+        "Treat with lower confidence: tell the user the match is approximate, do NOT invent definitions, "
+        "call get_vision_article for the full text before drawing conclusions, "
+        "and offer to search again with different keywords.",
+    )

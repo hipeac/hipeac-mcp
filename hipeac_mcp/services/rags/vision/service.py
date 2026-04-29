@@ -30,6 +30,16 @@ Raised from 0.42 to 0.45 to filter borderline false positives (e.g. Cybersecurit
 appearing for compiler/tooling queries).
 """
 
+FALLBACK_SIMILARITY_SCORE = 0.35
+"""Lower threshold used when the primary search returns zero results.
+
+Rare or coined terms (e.g. acronyms, proper nouns) embed to sparse vectors
+that can fall just below MIN_SIMILARITY_SCORE even when the concept exists in
+the corpus. This threshold gives the model something to reason from rather than
+a silent empty response. Results returned under this threshold include a lower
+similarity score so the model can still signal low confidence if needed.
+"""
+
 AGGREGATE_SCORE_PENALTY = 0.85
 """Score multiplier applied to aggregate articles (``is_aggregate=True``).
 
@@ -69,7 +79,7 @@ class VisionRagService(BaseRagService):
         super().__init__()
         self.generator = VisionDocumentGenerator(chunk_size=1500)
 
-    async def search_articles(self, queries: list[str] | str, limit: int = 10) -> VisionSearchResponse:
+    async def search_articles(self, queries: list[str] | str) -> VisionSearchResponse:
         """Search Vision articles and return a structured response.
 
         Accepts one or more queries. Multiple queries are searched in parallel
@@ -78,16 +88,15 @@ class VisionRagService(BaseRagService):
         angle has a fair chance to surface relevant articles.
 
         :param queries: One query string or a list of up to 3 query strings.
-        :param limit: Maximum number of articles to return (max: 5).
         :returns: Structured search response with ranked articles.
         """
-        actual_limit = min(limit, 5)
         primary_query = queries[0] if isinstance(queries, list) else queries
-        articles = await self.search(queries, actual_limit)
+        articles, is_fallback = await self.search(queries)
 
         return VisionSearchResponse(
             query=primary_query,
             total_results=len(articles),
+            is_fallback=is_fallback,
             articles=[
                 VisionArticleResult(
                     slug=article["slug"],
@@ -105,7 +114,7 @@ class VisionRagService(BaseRagService):
             ],
         )
 
-    async def search(self, queries: list[str] | str, limit: int = 10) -> list[dict[str, Any]]:
+    async def search(self, queries: list[str] | str) -> tuple[list[dict[str, Any]], bool]:
         """Search for Vision article chunks and aggregate by article.
 
         Accepts one or more query strings.  When multiple queries are given
@@ -114,13 +123,15 @@ class VisionRagService(BaseRagService):
         relevant articles.
 
         :param queries: One or more search query strings.
-        :param limit: Maximum number of articles to retrieve.
-        :returns: List of aggregated article results.
+        :returns: Tuple of (aggregated article results, is_fallback flag).
         """
         query_list = [queries] if isinstance(queries, str) else queries
         start = time.time()
         try:
-            base_results = await self._multi_query_search(query_list, limit * 5)
+            # Fetch enough FAISS chunks to cover all articles at max chunks each.
+            # Vision documents have ~15 articles × MAX_CHUNKS_PER_ARTICLE chunks.
+            candidate_pool = 15 * MAX_CHUNKS_PER_ARTICLE * len(query_list)
+            base_results = await self._multi_query_search(query_list, candidate_pool)
             logger.info(
                 f"FAISS search ({len(query_list)} quer{'y' if len(query_list) == 1 else 'ies'}) "
                 f"completed in {time.time() - start:.2f}s ({len(base_results)} chunks)"
@@ -135,7 +146,19 @@ class VisionRagService(BaseRagService):
                 slug: data for slug, data in aggregated.items() if data["similarity_score"] >= MIN_SIMILARITY_SCORE
             }
 
-            formatted_results = sorted(qualifying.values(), key=lambda x: x["similarity_score"], reverse=True)[:limit]
+            # If nothing passes the primary threshold (e.g. a rare coined term whose
+            # embedding is sparse), retry with the fallback threshold so the model has
+            # something to reason from rather than a silent empty response.
+            is_fallback = False
+            if not qualifying and aggregated:
+                qualifying = {
+                    slug: data
+                    for slug, data in aggregated.items()
+                    if data["similarity_score"] >= FALLBACK_SIMILARITY_SCORE
+                }
+                is_fallback = bool(qualifying)
+
+            formatted_results = sorted(qualifying.values(), key=lambda x: x["similarity_score"], reverse=True)
 
             for result in formatted_results:
                 # chunks are stored in descending FAISS score order; use only the
@@ -146,11 +169,11 @@ class VisionRagService(BaseRagService):
                 result.pop("chunks", None)
 
             logger.info(f"Total search completed in {time.time() - start:.2f}s")
-            return formatted_results
+            return formatted_results, is_fallback
 
         except Exception as e:
             logger.error(f"Error searching Vision articles after {time.time() - start:.2f}s: {e}")
-            return []
+            return [], False
 
     def _aggregate_chunks(self, base_results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Aggregate FAISS chunk results by article slug.

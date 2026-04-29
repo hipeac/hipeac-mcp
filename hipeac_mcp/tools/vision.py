@@ -34,7 +34,6 @@ async def search_vision(
     queries: list[str] | None = None,
     year: int | None = None,
     years: list[int] | None = None,
-    limit: int = 4,
     ctx: Context = None,
 ) -> VisionSearchResponse:
     """Search HiPEAC Vision strategic documents using semantic search.
@@ -92,6 +91,14 @@ async def search_vision(
     - User explicitly asks for a specific year: pass ``year=<year>`` to scope the search.
     - Explicit cross-edition comparison: pass ``years=[...]``.
 
+    **Interpreting similarity scores:**
+    Each result includes a ``similarity_score`` (cosine similarity, 0–1):
+    - ≥ 0.45: strong match — answer with confidence.
+    - 0.35–0.44: weak match returned as a fallback because no strong match existed.
+      Treat these with lower confidence: signal to the user that the match is approximate
+      and offer to search again with different keywords.
+    - Results below 0.35 are never returned.
+
     **Response Guidelines — Citation and Quoting:**
     When presenting results to the user, you MUST follow these rules:
     - Summaries and interpretations of the returned articles are encouraged and useful.
@@ -106,10 +113,8 @@ async def search_vision(
     :param queries: Up to 2 additional query variants probing different semantic angles.
     :param year: Specific Vision year to search. Omit to search all available editions.
     :param years: Explicit list of years to search (overrides ``year``).
-    :param limit: Maximum number of articles to return (default: 4, max: 5).
     :returns: Structured search results with ranked articles.
     """
-    actual_limit = min(limit, 5)
     all_queries = [query] + (queries[:2] if queries else [])
 
     # When no year is specified, search all available editions so the answer
@@ -117,12 +122,10 @@ async def search_vision(
     search_years = years or ([year] if year else [2026, 2025])
 
     if len(search_years) == 1:
-        return await _get_service(search_years[0]).search_articles(all_queries, actual_limit)
+        return await _get_service(search_years[0]).search_articles(all_queries)
 
     all_articles: list[VisionArticleResult] = []
-    results_per_year = await asyncio.gather(
-        *[_get_service(y).search_articles(all_queries, actual_limit) for y in search_years]
-    )
+    results_per_year = await asyncio.gather(*[_get_service(y).search_articles(all_queries) for y in search_years])
     for response in results_per_year:
         all_articles.extend(response.articles)
 
@@ -130,8 +133,8 @@ async def search_vision(
 
     return VisionSearchResponse(
         query=query,
-        total_results=len(all_articles[:actual_limit]),
-        articles=all_articles[:actual_limit],
+        total_results=len(all_articles),
+        articles=all_articles,
     )
 
 

@@ -100,22 +100,9 @@ class TestSearchVision:
         mock_service.search_articles.return_value = _make_response("query", n=2)
         mock_get_svc.return_value = mock_service
 
-        result = await search_vision.__wrapped__("query", years=[2024, 2025], limit=3)
+        await search_vision.__wrapped__("query", years=[2024, 2025])
 
         assert mock_get_svc.call_count == 2
-        assert result.total_results <= 3
-
-    @patch("hipeac_mcp.tools.vision._get_service")
-    async def test_limit_capped_at_5(self, mock_get_svc):
-        """Limit is capped at 5 regardless of input, applied to each year searched."""
-        mock_service = AsyncMock()
-        mock_service.search_articles.return_value = _make_response()
-        mock_get_svc.return_value = mock_service
-
-        await search_vision.__wrapped__("query", limit=100)
-
-        for call in mock_service.search_articles.call_args_list:
-            assert call == (((["query"], 5),))
 
     @patch("hipeac_mcp.tools.vision._get_service")
     async def test_multi_year_results_sorted_by_score(self, mock_get_svc):

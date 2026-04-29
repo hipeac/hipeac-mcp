@@ -233,18 +233,20 @@ class TestSearch:
             patch.object(service, "_multi_query_search", new_callable=AsyncMock, return_value=chunk_results),
             patch.object(service, "_enrich_from_database", new_callable=AsyncMock),
         ):
-            results = await service.search("artificial intelligence", limit=5)
+            results, is_fallback = await service.search("artificial intelligence")
 
         assert len(results) == 1
         assert results[0]["slug"] == "ai"
         assert "content_preview" in results[0]
+        assert is_fallback is False
 
     async def test_returns_empty_on_error(self, service):
         """Search returns empty list when FAISS raises an exception."""
         with patch.object(service, "_multi_query_search", new_callable=AsyncMock, side_effect=RuntimeError("FAISS")):
-            results = await service.search("query")
+            results, is_fallback = await service.search("query")
 
         assert results == []
+        assert is_fallback is False
 
     async def test_no_score_boost_for_chapters(self, service):
         """Chapter articles do not receive a score boost; score is unchanged."""
@@ -260,9 +262,10 @@ class TestSearch:
             patch.object(service, "_multi_query_search", new_callable=AsyncMock, return_value=chunk_results),
             patch.object(service, "_enrich_from_database", new_callable=AsyncMock),
         ):
-            results = await service.search("test", limit=1)
+            results, is_fallback = await service.search("test")
 
         assert results[0]["similarity_score"] == pytest.approx(0.7)
+        assert is_fallback is False
 
 
 class TestSearchArticles:
@@ -296,20 +299,20 @@ class TestSearchArticles:
             }
         ]
 
-        with patch.object(service, "search", new_callable=AsyncMock, return_value=search_results):
-            response = await service.search_articles("quantum computing", limit=3)
+        with patch.object(service, "search", new_callable=AsyncMock, return_value=(search_results, False)):
+            response = await service.search_articles("quantum computing")
 
         assert response.query == "quantum computing"
         assert response.total_results == 1
         assert response.articles[0].slug == "quantum"
         assert response.articles[0].url == "https://www.hipeac.net/vision/2025/quantum/"
 
-    async def test_caps_limit_at_5(self, service):
-        """Limit is capped at 5."""
-        with patch.object(service, "search", new_callable=AsyncMock, return_value=[]) as mock_search:
-            await service.search_articles("query", limit=20)
+    async def test_passes_queries_to_search(self, service):
+        """search_articles delegates to search with the provided queries."""
+        with patch.object(service, "search", new_callable=AsyncMock, return_value=([], False)) as mock_search:
+            await service.search_articles("query")
 
-        mock_search.assert_called_once_with("query", 5)
+        mock_search.assert_called_once_with("query")
 
 
 class TestIndexArticle:
