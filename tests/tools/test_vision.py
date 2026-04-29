@@ -70,16 +70,17 @@ class TestSearchVision:
 
     @patch("hipeac_mcp.tools.vision._get_service")
     async def test_single_year_default(self, mock_get_svc):
-        """Default search uses year 2025."""
+        """Default search (no year specified) searches all available editions (2026 and 2025)."""
         mock_service = AsyncMock()
         mock_service.search_articles.return_value = _make_response("quantum")
         mock_get_svc.return_value = mock_service
 
         result = await search_vision.__wrapped__("quantum computing")
 
-        mock_get_svc.assert_called_once_with(2025)
-        mock_service.search_articles.assert_called_once_with(["quantum computing"], 4)
-        assert result.total_results == 1
+        assert mock_get_svc.call_count == 2
+        mock_get_svc.assert_any_call(2026)
+        mock_get_svc.assert_any_call(2025)
+        assert result.total_results <= 4
 
     @patch("hipeac_mcp.tools.vision._get_service")
     async def test_single_year_explicit(self, mock_get_svc):
@@ -106,14 +107,15 @@ class TestSearchVision:
 
     @patch("hipeac_mcp.tools.vision._get_service")
     async def test_limit_capped_at_5(self, mock_get_svc):
-        """Limit is capped at 5 regardless of input."""
+        """Limit is capped at 5 regardless of input, applied to each year searched."""
         mock_service = AsyncMock()
         mock_service.search_articles.return_value = _make_response()
         mock_get_svc.return_value = mock_service
 
         await search_vision.__wrapped__("query", limit=100)
 
-        mock_service.search_articles.assert_called_once_with(["query"], 5)
+        for call in mock_service.search_articles.call_args_list:
+            assert call == (((["query"], 5),))
 
     @patch("hipeac_mcp.tools.vision._get_service")
     async def test_multi_year_results_sorted_by_score(self, mock_get_svc):

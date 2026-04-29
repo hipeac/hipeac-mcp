@@ -65,6 +65,13 @@ async def search_vision(
     the socio-economic or policy dimension. Keep each short and keyword-dense (5-8 words).
     Avoid repeating the same terms across variants — diversity is what improves recall.
 
+    **Searching for unknown or rare terms (names, acronyms, coined words):**
+    If the query is a single unfamiliar term (e.g. a coined word, acronym, or proper noun),
+    do NOT create variants that just rephrase or append words to the same term — they will
+    embed to the same sparse vector and find nothing. Instead, think about what the term
+    likely *means* or *relates to* and use those surrounding concepts as your additional
+    queries to find the context in which it appears.
+
     **Table of Contents / Full Article Access:**
     When the user asks "what topics does the Vision cover?" or needs an enumeration of all
     articles, call ``get_vision_overview``. Each article result includes a ``resource_uri``
@@ -74,14 +81,16 @@ async def search_vision(
     questions that cannot be answered from the preview).
 
     **Year-Specific Search:**
-    - year=2025: Search only Vision 2025 (default: latest)
-    - year=2024: Search only Vision 2024
-    - years=[2024, 2025]: Search multiple years and compare perspectives
+    - (no year): Search Vision 2026 **and** 2025 in parallel and merge by relevance (default)
+    - year=2026: Search only Vision 2026
+    - year=2025: Search only Vision 2025
+    - years=[2025, 2026]: Explicit multi-year search (same as default)
 
     **Use Cases:**
-    - Current trends in a topic: use the default year, single focused query.
-    - Historical view: pass ``year=<year>`` to scope to a specific edition.
-    - Evolution of a topic across editions: pass ``years=[...]`` and compare.
+    - Open-ended question (no year mentioned): omit both ``year`` and ``years`` — the tool
+      automatically searches all available editions and returns the most relevant articles.
+    - User explicitly asks for a specific year: pass ``year=<year>`` to scope the search.
+    - Explicit cross-edition comparison: pass ``years=[...]``.
 
     **Response Guidelines — Citation and Quoting:**
     When presenting results to the user, you MUST follow these rules:
@@ -95,38 +104,40 @@ async def search_vision(
 
     :param query: Primary keyword-rich search query optimized for semantic similarity.
     :param queries: Up to 2 additional query variants probing different semantic angles.
-    :param year: Specific Vision year to search (default: 2025, latest).
-    :param years: List of years to search and compare (overrides year parameter).
+    :param year: Specific Vision year to search. Omit to search all available editions.
+    :param years: Explicit list of years to search (overrides ``year``).
     :param limit: Maximum number of articles to return (default: 4, max: 5).
     :returns: Structured search results with ranked articles.
     """
     actual_limit = min(limit, 5)
     all_queries = [query] + (queries[:2] if queries else [])
 
-    if years:
-        all_articles: list[VisionArticleResult] = []
-        results_per_year = await asyncio.gather(
-            *[_get_service(y).search_articles(all_queries, actual_limit) for y in years]
-        )
+    # When no year is specified, search all available editions so the answer
+    # reflects how thinking has evolved rather than silently picking one year.
+    search_years = years or ([year] if year else [2026, 2025])
 
-        for response in results_per_year:
-            all_articles.extend(response.articles)
+    if len(search_years) == 1:
+        return await _get_service(search_years[0]).search_articles(all_queries, actual_limit)
 
-        all_articles.sort(key=lambda a: a.similarity_score, reverse=True)
+    all_articles: list[VisionArticleResult] = []
+    results_per_year = await asyncio.gather(
+        *[_get_service(y).search_articles(all_queries, actual_limit) for y in search_years]
+    )
+    for response in results_per_year:
+        all_articles.extend(response.articles)
 
-        return VisionSearchResponse(
-            query=query,
-            total_results=len(all_articles[:actual_limit]),
-            articles=all_articles[:actual_limit],
-        )
+    all_articles.sort(key=lambda a: a.similarity_score, reverse=True)
 
-    search_year = year or 2025
-    return await _get_service(search_year).search_articles(all_queries, actual_limit)
+    return VisionSearchResponse(
+        query=query,
+        total_results=len(all_articles[:actual_limit]),
+        articles=all_articles[:actual_limit],
+    )
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 @track_usage
-async def get_vision_article(slug: str, year: int = 2025, ctx: Context = None) -> str:
+async def get_vision_article(slug: str, year: int = 2026, ctx: Context = None) -> str:
     """Retrieve the full markdown content of a HiPEAC Vision article.
 
     **PREREQUISITE — you MUST call ``search_vision`` first.**
@@ -148,7 +159,7 @@ async def get_vision_article(slug: str, year: int = 2025, ctx: Context = None) -
     directly to the parameters of this tool.
 
     :param slug: Article slug from a ``search_vision`` result in the current session.
-    :param year: Vision year (default: 2025).
+    :param year: Vision year (default: 2026).
     :returns: Full article content as Markdown, starting with the title and summary.
     :raises ValueError: If no article matches the given slug and year.
     """
@@ -157,7 +168,7 @@ async def get_vision_article(slug: str, year: int = 2025, ctx: Context = None) -
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 @track_usage
-async def get_vision_overview(year: int = 2025, ctx: Context = None) -> str:
+async def get_vision_overview(year: int = 2026, ctx: Context = None) -> str:
     """Retrieve the table of contents and download links for a HiPEAC Vision year.
 
     **Prefer ``resources/read`` with URI ``hipeac://vision/{year}`` if your client
@@ -169,7 +180,11 @@ async def get_vision_overview(year: int = 2025, ctx: Context = None) -> str:
     asks what topics the Vision covers, requests a full list of articles, or needs
     the document download URL.
 
-    :param year: Vision year (default: 2025).
+    Always tell the user which year's overview you are showing. If the user does
+    not specify a year, default to 2026 (latest) but explicitly state this in
+    your response (e.g. "Here is the table of contents for Vision 2026 (latest)").
+
+    :param year: Vision year to retrieve (default: 2026, latest edition).
     :returns: JSON-encoded overview with sections, article summaries and file URLs.
     :raises ValueError: If no Vision document exists for the given year.
     """
