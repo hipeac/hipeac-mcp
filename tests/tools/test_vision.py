@@ -5,7 +5,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from hipeac_mcp.schemas.vision import VisionArticleResult, VisionSearchResponse
-from hipeac_mcp.tools.vision import _get_service, _service_cache, get_vision_article, get_vision_overview, search_vision
+from hipeac_mcp.tools.vision import (
+    _get_latest_published_year,
+    _get_service,
+    _service_cache,
+    get_vision_article,
+    get_vision_overview,
+    search_vision,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +37,7 @@ def _make_response(query: str = "test", n: int = 1) -> VisionSearchResponse:
             section="Chapters",
             summary=f"Summary {i}",
             vision_year=2025,
+            is_draft=False,
             similarity_score=0.9 - i * 0.1,
             content_preview=f"Preview {i}",
             references=[],
@@ -65,21 +73,50 @@ class TestGetService:
         assert mock_cls.call_count == 2
 
 
+class TestGetLatestPublishedYear:
+    """Tests for latest published Vision year resolution."""
+
+    @patch("hipeac_mcp.tools.vision.ensure_connection_async", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.vision.Vision")
+    async def test_returns_latest_published_year(self, mock_vision, mock_conn):
+        """The helper returns the most recent non-draft Vision year."""
+        latest = MagicMock(year=2025)
+        mock_vision.objects.filter.return_value.order_by.return_value.only.return_value.afirst = AsyncMock(
+            return_value=latest
+        )
+
+        result = await _get_latest_published_year()
+
+        assert result == 2025
+        mock_vision.objects.filter.assert_called_once_with(is_draft=False)
+
+    @patch("hipeac_mcp.tools.vision.ensure_connection_async", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.vision.Vision")
+    async def test_raises_when_no_published_edition_exists(self, mock_vision, mock_conn):
+        """The helper raises a clear error when no published Vision exists."""
+        mock_vision.objects.filter.return_value.order_by.return_value.only.return_value.afirst = AsyncMock(
+            return_value=None
+        )
+
+        with pytest.raises(ValueError, match="No published Vision edition found"):
+            await _get_latest_published_year()
+
+
 class TestSearchVision:
     """Tests for the search_vision MCP tool."""
 
+    @patch("hipeac_mcp.tools.vision._get_latest_published_year", new_callable=AsyncMock, return_value=2025)
     @patch("hipeac_mcp.tools.vision._get_service")
-    async def test_single_year_default(self, mock_get_svc):
-        """Default search (no year specified) searches all available editions (2026 and 2025)."""
+    async def test_single_year_default(self, mock_get_svc, mock_latest_year):
+        """Default search resolves the latest published year and searches only that edition."""
         mock_service = AsyncMock()
         mock_service.search_articles.return_value = _make_response("quantum")
         mock_get_svc.return_value = mock_service
 
         result = await search_vision.__wrapped__("quantum computing")
 
-        assert mock_get_svc.call_count == 2
-        mock_get_svc.assert_any_call(2026)
-        mock_get_svc.assert_any_call(2025)
+        mock_latest_year.assert_awaited_once()
+        mock_get_svc.assert_called_once_with(2025)
         assert result.total_results <= 4
 
     @patch("hipeac_mcp.tools.vision._get_service")
@@ -117,6 +154,7 @@ class TestSearchVision:
                     section="S",
                     summary="",
                     vision_year=2024,
+                    is_draft=False,
                     similarity_score=0.5,
                     content_preview="",
                     references=[],
@@ -135,6 +173,7 @@ class TestSearchVision:
                     section="S",
                     summary="",
                     vision_year=2025,
+                    is_draft=False,
                     similarity_score=0.9,
                     content_preview="",
                     references=[],
@@ -169,6 +208,18 @@ class TestGetVisionArticleTool:
         mock_get_article.assert_called_once_with(year=2025, slug="ai-trends")
         assert result == "# AI Trends\nBody text."
 
+    @patch("hipeac_mcp.tools.vision._get_latest_published_year", new_callable=AsyncMock, return_value=2025)
+    @patch("hipeac_mcp.tools.vision._get_article")
+    async def test_resolves_latest_published_year_when_omitted(self, mock_get_article, mock_latest_year):
+        """When year is omitted, the wrapper resolves the latest published Vision year."""
+        mock_get_article.return_value = "# AI Trends\nBody text."
+
+        result = await get_vision_article.__wrapped__("ai-trends")
+
+        mock_latest_year.assert_awaited_once()
+        mock_get_article.assert_called_once_with(year=2025, slug="ai-trends")
+        assert result == "# AI Trends\nBody text."
+
 
 class TestGetVisionOverviewTool:
     """Tests for the get_vision_overview tool wrapper."""
@@ -180,5 +231,17 @@ class TestGetVisionOverviewTool:
 
         result = await get_vision_overview.__wrapped__(year=2025)
 
+        mock_get_overview.assert_called_once_with(year=2025)
+        assert result == '{"year": 2025}'
+
+    @patch("hipeac_mcp.tools.vision._get_latest_published_year", new_callable=AsyncMock, return_value=2025)
+    @patch("hipeac_mcp.tools.vision._get_overview")
+    async def test_resolves_latest_published_year_when_omitted(self, mock_get_overview, mock_latest_year):
+        """When year is omitted, the wrapper resolves the latest published Vision year."""
+        mock_get_overview.return_value = '{"year": 2025}'
+
+        result = await get_vision_overview.__wrapped__()
+
+        mock_latest_year.assert_awaited_once()
         mock_get_overview.assert_called_once_with(year=2025)
         assert result == '{"year": 2025}'

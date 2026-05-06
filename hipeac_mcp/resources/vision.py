@@ -34,8 +34,20 @@ async def get_vision_article(year: int, slug: str) -> str:
         raise ValueError(f"Vision article '{slug}' not found for year {year}.") from None
 
     summary = article.get_summary()
-    header = f"# {article.title}\n\n> {summary}\n\n---\n\n" if summary else f"# {article.title}\n\n---\n\n"
-    return header + (article.content or "")
+
+    header_parts = [f"# {article.title}", ""]
+    if article.section.vision.is_draft:
+        header_parts.extend(
+            [
+                "> Draft Vision content. This edition is not yet published and may change.",
+                "",
+            ]
+        )
+    if summary:
+        header_parts.extend([f"> {summary}", ""])
+    header_parts.extend(["---", ""])
+
+    return "\n".join(header_parts) + (article.content or "")
 
 
 @mcp.resource(

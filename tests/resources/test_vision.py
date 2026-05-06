@@ -8,13 +8,20 @@ import pytest
 from hipeac_mcp.resources.vision import get_vision_article, get_vision_overview
 
 
-def _make_article(title: str = "AI Trends", slug: str = "ai", content: str = "Body.", summary: str = "") -> MagicMock:
+def _make_article(
+    title: str = "AI Trends",
+    slug: str = "ai",
+    content: str = "Body.",
+    summary: str = "",
+    is_draft: bool = False,
+) -> MagicMock:
     """Build a mock VisionArticle for resource handler tests.
 
     :param title: Article title.
     :param slug: Article slug.
     :param content: Raw article content.
     :param summary: Precomputed summary (empty means fall back to ai_summary).
+    :param is_draft: Whether the parent Vision edition is draft.
     :returns: MagicMock mimicking a VisionArticle instance.
     """
     article = MagicMock()
@@ -22,6 +29,7 @@ def _make_article(title: str = "AI Trends", slug: str = "ai", content: str = "Bo
     article.slug = slug
     article.content = content
     article.get_summary.return_value = summary
+    article.section.vision.is_draft = is_draft
     return article
 
 
@@ -66,6 +74,18 @@ class TestGetVisionArticleResource:
         assert "# AI Trends" in result
         assert ">" not in result
         assert "Body." in result
+
+    @patch("hipeac_mcp.resources.vision.ensure_connection_async", new_callable=AsyncMock)
+    @patch("hipeac_mcp.resources.vision.VisionArticle")
+    async def test_includes_draft_notice_when_edition_is_draft(self, mock_cls, mock_conn):
+        """Draft Vision articles include an explicit notice in the markdown header."""
+        article = _make_article(summary="A concise summary.", is_draft=True)
+        mock_cls.objects.select_related.return_value.aget = AsyncMock(return_value=article)
+
+        result = await get_vision_article(2027, "ai")
+
+        assert "Draft Vision content" in result
+        assert "may change" in result
 
     @patch("hipeac_mcp.resources.vision.ensure_connection_async", new_callable=AsyncMock)
     @patch("hipeac_mcp.resources.vision.VisionArticle")

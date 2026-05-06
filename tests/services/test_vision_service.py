@@ -292,6 +292,7 @@ class TestSearchArticles:
                 "section": "Chapters",
                 "summary": "About quantum.",
                 "vision_year": 2025,
+                "is_draft": False,
                 "similarity_score": 0.85,
                 "content_preview": "Quantum is...",
                 "references": [{"code": "Ref1", "text": "Citation"}],

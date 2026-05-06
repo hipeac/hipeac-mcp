@@ -104,6 +104,7 @@ class VisionRagService(BaseRagService):
                     section=article["section"],
                     summary=article["summary"],
                     vision_year=article["vision_year"],
+                    is_draft=article["is_draft"],
                     similarity_score=article["similarity_score"],
                     content_preview=article["content_preview"],
                     references=[VisionReference(code=r["code"], text=r["text"]) for r in article.get("references", [])],
@@ -200,6 +201,7 @@ class VisionRagService(BaseRagService):
                     "section": meta["section"],
                     "summary": "",
                     "vision_year": vision_year,
+                    "is_draft": False,
                     "similarity_score": result["similarity_score"],
                     "chunks": [],
                     "url": f"/vision/{vision_year}/{slug}/",
@@ -235,7 +237,16 @@ class VisionRagService(BaseRagService):
             articles_qs = (
                 VisionArticle.objects.filter(q_obj)
                 .select_related("section__vision")
-                .only("slug", "section__vision__year", "title", "summary", "ai_summary", "content_tree", "is_aggregate")
+                .only(
+                    "slug",
+                    "section__vision__year",
+                    "section__vision__is_draft",
+                    "title",
+                    "summary",
+                    "ai_summary",
+                    "content_tree",
+                    "is_aggregate",
+                )
             )
 
             async for article_obj in articles_qs:
@@ -245,6 +256,7 @@ class VisionRagService(BaseRagService):
                 entry = aggregated[article_obj.slug]
                 entry["url"] = await sync_to_async(article_obj.get_absolute_url)()
                 entry["summary"] = await sync_to_async(article_obj.get_summary)()
+                entry["is_draft"] = article_obj.section.vision.is_draft
                 if article_obj.is_aggregate:
                     entry["similarity_score"] *= AGGREGATE_SCORE_PENALTY
 

@@ -6,6 +6,8 @@ from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from hipeac_mcp import mcp
+from hipeac_mcp.db import ensure_connection_async
+from hipeac_mcp.models.vision import Vision
 from hipeac_mcp.resources.vision import get_vision_article as _get_article
 from hipeac_mcp.resources.vision import get_vision_overview as _get_overview
 from hipeac_mcp.schemas.vision import VisionArticleResult, VisionSearchResponse
@@ -25,6 +27,21 @@ def _get_service(year: int) -> VisionRagService:
     if year not in _service_cache:
         _service_cache[year] = VisionRagService(year=year)
     return _service_cache[year]
+
+
+async def _get_latest_published_year() -> int:
+    """Resolve the latest published Vision year from the database.
+
+    :returns: Latest published Vision year.
+    :raises ValueError: If no published Vision edition exists.
+    """
+    await ensure_connection_async()
+
+    latest = await Vision.objects.filter(is_draft=False).order_by("-year").only("year").afirst()
+    if latest is None:
+        raise ValueError("No published Vision edition found.")
+
+    return latest.year
 
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
@@ -80,16 +97,22 @@ async def search_vision(
     questions that cannot be answered from the preview).
 
     **Year-Specific Search:**
-    - (no year): Search Vision 2026 **and** 2025 in parallel and merge by relevance (default)
-    - year=2026: Search only Vision 2026
-    - year=2025: Search only Vision 2025
-    - years=[2025, 2026]: Explicit multi-year search (same as default)
+    - (no year): The tool resolves the latest published Vision edition from
+        the database and searches only that edition.
+    - year=<year>: Search only the requested edition, even if it is still a draft.
+    - years=[...]: Search the explicitly requested editions and merge by relevance.
 
     **Use Cases:**
-    - Open-ended question (no year mentioned): omit both ``year`` and ``years`` — the tool
-      automatically searches all available editions and returns the most relevant articles.
-    - User explicitly asks for a specific year: pass ``year=<year>`` to scope the search.
+    - Open-ended question (no year mentioned): omit both ``year`` and ``years`` so the tool
+        uses the latest published Vision edition.
+    - User explicitly asks for a specific year: pass ``year=<year>`` to scope the search,
+        including draft editions when requested.
     - Explicit cross-edition comparison: pass ``years=[...]``.
+
+    **Draft editions:**
+    If a requested ``year`` or any year in ``years`` refers to a draft Vision edition,
+    you MUST explicitly tell the user that the content is draft and may change.
+    Each result includes an ``is_draft`` flag for this purpose.
 
     **Interpreting similarity scores:**
     Each result includes a ``similarity_score`` (cosine similarity, 0–1):
@@ -111,15 +134,18 @@ async def search_vision(
 
     :param query: Primary keyword-rich search query optimized for semantic similarity.
     :param queries: Up to 2 additional query variants probing different semantic angles.
-    :param year: Specific Vision year to search. Omit to search all available editions.
+    :param year: Specific Vision year to search. Omit to search the latest published edition.
     :param years: Explicit list of years to search (overrides ``year``).
     :returns: Structured search results with ranked articles.
     """
     all_queries = [query] + (queries[:2] if queries else [])
 
-    # When no year is specified, search all available editions so the answer
-    # reflects how thinking has evolved rather than silently picking one year.
-    search_years = years or ([year] if year else [2026, 2025])
+    if years:
+        search_years = years
+    elif year is not None:
+        search_years = [year]
+    else:
+        search_years = [await _get_latest_published_year()]
 
     if len(search_years) == 1:
         return await _get_service(search_years[0]).search_articles(all_queries)
@@ -140,7 +166,7 @@ async def search_vision(
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 @track_usage
-async def get_vision_article(slug: str, year: int = 2026, ctx: Context = None) -> str:
+async def get_vision_article(slug: str, year: int | None = None, ctx: Context = None) -> str:
     """Retrieve the full markdown content of a HiPEAC Vision article.
 
     **PREREQUISITE — you MUST call ``search_vision`` first.**
@@ -161,17 +187,24 @@ async def get_vision_article(slug: str, year: int = 2026, ctx: Context = None) -
     ``hipeac://vision/{year}/{slug}`` — the ``slug`` and ``year`` values map
     directly to the parameters of this tool.
 
+    If ``year`` is omitted, the tool resolves the latest published Vision edition
+    from the database. If you request a draft year explicitly, you MUST tell the
+    user that the article content is draft and may change.
+
     :param slug: Article slug from a ``search_vision`` result in the current session.
-    :param year: Vision year (default: 2026).
+    :param year: Vision year. Omit to use the latest published edition.
     :returns: Full article content as Markdown, starting with the title and summary.
     :raises ValueError: If no article matches the given slug and year.
     """
+    if year is None:
+        year = await _get_latest_published_year()
+
     return await _get_article(year=year, slug=slug)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 @track_usage
-async def get_vision_overview(year: int = 2026, ctx: Context = None) -> str:
+async def get_vision_overview(year: int | None = None, ctx: Context = None) -> str:
     """Retrieve the table of contents and download links for a HiPEAC Vision year.
 
     **Prefer ``resources/read`` with URI ``hipeac://vision/{year}`` if your client
@@ -183,12 +216,16 @@ async def get_vision_overview(year: int = 2026, ctx: Context = None) -> str:
     asks what topics the Vision covers, requests a full list of articles, or needs
     the document download URL.
 
-    Always tell the user which year's overview you are showing. If the user does
-    not specify a year, default to 2026 (latest) but explicitly state this in
-    your response (e.g. "Here is the table of contents for Vision 2026 (latest)").
+    Always tell the user which year's overview you are showing. If ``year`` is
+    omitted, the tool resolves the latest published Vision edition from the
+    database. The returned JSON includes an ``is_draft`` flag; when it is true,
+    you MUST explicitly tell the user the edition is draft and may change.
 
-    :param year: Vision year to retrieve (default: 2026, latest edition).
+    :param year: Vision year to retrieve. Omit to use the latest published edition.
     :returns: JSON-encoded overview with sections, article summaries and file URLs.
     :raises ValueError: If no Vision document exists for the given year.
     """
+    if year is None:
+        year = await _get_latest_published_year()
+
     return await _get_overview(year=year)

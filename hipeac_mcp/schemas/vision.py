@@ -18,6 +18,13 @@ class VisionArticleResult(BaseModel):
     section: str = Field(..., description="Vision section (e.g., 'Chapters', 'Recommendations')")
     summary: str = Field(..., description="Brief article summary")
     vision_year: int = Field(..., description="Vision year (e.g., 2025)")
+    is_draft: bool = Field(
+        ...,
+        description=(
+            "True when the result comes from a draft Vision edition. "
+            "When true, the assistant must say the content is draft and may change."
+        ),
+    )
     similarity_score: float = Field(..., description="Semantic similarity score (0-1)", ge=0, le=1)
     content_preview: str = Field(
         ...,
