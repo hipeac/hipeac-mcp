@@ -88,7 +88,7 @@ class TestGetLatestPublishedYear:
         result = await _get_latest_published_year()
 
         assert result == 2025
-        mock_vision.objects.filter.assert_called_once_with(is_draft=False)
+        mock_vision.objects.filter.assert_called_once_with(status=mock_vision.PUBLISHED)
 
     @patch("hipeac_mcp.tools.vision.ensure_connection_async", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.vision.Vision")

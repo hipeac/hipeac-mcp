@@ -240,7 +240,7 @@ class VisionRagService(BaseRagService):
                 .only(
                     "slug",
                     "section__vision__year",
-                    "section__vision__is_draft",
+                    "section__vision__status",
                     "title",
                     "summary",
                     "ai_summary",

@@ -6,8 +6,12 @@ from django.db import models
 class Vision(models.Model):
     """HiPEAC Vision document (read-only)."""
 
+    HIDDEN = "hidden"
+    DRAFT = "draft"
+    PUBLISHED = "published"
+
     year = models.IntegerField(unique=True)
-    is_draft = models.BooleanField(default=False)
+    status = models.CharField(max_length=20, default=HIDDEN)
 
     class Meta:
         db_table = "hipeac_vision"
@@ -16,6 +20,11 @@ class Vision(models.Model):
 
     def __str__(self) -> str:
         return f"Vision {self.year}"
+
+    @property
+    def is_draft(self) -> bool:
+        """Return True if the vision is a draft."""
+        return self.status == self.DRAFT
 
 
 class VisionSection(models.Model):

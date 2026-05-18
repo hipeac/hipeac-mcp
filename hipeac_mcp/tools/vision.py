@@ -37,7 +37,7 @@ async def _get_latest_published_year() -> int:
     """
     await ensure_connection_async()
 
-    latest = await Vision.objects.filter(is_draft=False).order_by("-year").only("year").afirst()
+    latest = await Vision.objects.filter(status=Vision.PUBLISHED).order_by("-year").only("year").afirst()
     if latest is None:
         raise ValueError("No published Vision edition found.")
 
