@@ -60,6 +60,32 @@ class TestOpenAIEmbeddingProvider:
             input="test",
         )
 
+    @pytest.mark.asyncio
+    async def test_health_check_returns_true_on_success(self):
+        """Health check returns True when the API responds successfully."""
+        provider = OpenAIEmbeddingProvider(api_key="test-key")
+        provider.client = MagicMock()
+        provider.client.embeddings.create = AsyncMock(return_value=MagicMock())
+
+        result = await provider.health_check()
+
+        assert result is True
+        provider.client.embeddings.create.assert_called_once_with(
+            model="text-embedding-3-small",
+            input="health check",
+        )
+
+    @pytest.mark.asyncio
+    async def test_health_check_returns_false_on_error(self):
+        """Health check returns False (not raises) when the API fails."""
+        provider = OpenAIEmbeddingProvider(api_key="test-key")
+        provider.client = MagicMock()
+        provider.client.embeddings.create = AsyncMock(side_effect=RuntimeError("429 quota exhausted"))
+
+        result = await provider.health_check()
+
+        assert result is False
+
 
 class TestGetEmbeddingProvider:
     """Test suite for provider factory."""

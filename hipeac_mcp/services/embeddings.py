@@ -24,6 +24,13 @@ class EmbeddingProvider(Protocol):
         """
         ...
 
+    async def health_check(self) -> bool:
+        """Verify the provider can generate embeddings.
+
+        :returns: True if the provider is operational, False otherwise.
+        """
+        ...
+
 
 class OpenAIEmbeddingProvider:
     """OpenAI embedding provider using the embeddings API."""
@@ -47,6 +54,22 @@ class OpenAIEmbeddingProvider:
         """
         response = await self.client.embeddings.create(model=self.model, input=text)
         return response.data[0].embedding
+
+    async def health_check(self) -> bool:
+        """Verify the OpenAI embeddings API is reachable and has quota.
+
+        Sends a minimal embedding request. Returns False on any error
+        (quota exhaustion, auth failure, network) so callers can abort
+        destructive operations before wiping existing data.
+
+        :returns: True if the API responded successfully, False otherwise.
+        """
+        try:
+            await self.client.embeddings.create(model=self.model, input="health check")
+            return True
+        except Exception as e:
+            logger.warning(f"Embedding provider health check failed: {e}")
+            return False
 
 
 _provider: EmbeddingProvider | None = None

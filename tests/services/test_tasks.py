@@ -162,6 +162,7 @@ class TestReindexVisionYear:
     async def test_resets_and_reindexes(self, mock_ensure, mock_article_cls, mock_service_cls):
         """The index is reset and articles are reindexed."""
         mock_service = MagicMock()
+        mock_service.health_check = AsyncMock(return_value=True)
         mock_service.index_article = AsyncMock()
         mock_service_cls.return_value = mock_service
 
@@ -190,6 +191,7 @@ class TestReindexVisionYear:
     async def test_continues_after_article_indexing_failure(self, mock_ensure, mock_article_cls, mock_service_cls):
         """An error indexing one article is logged and the loop continues."""
         mock_service = MagicMock()
+        mock_service.health_check = AsyncMock(return_value=True)
         mock_service.index_article = AsyncMock(side_effect=RuntimeError("embedding failed"))
         mock_service_cls.return_value = mock_service
 
@@ -225,6 +227,7 @@ class TestReindexEvent:
         mock_event.name = "HiPEAC 2026"
 
         mock_service = MagicMock()
+        mock_service.health_check = AsyncMock(return_value=True)
         mock_service.index_event = AsyncMock(return_value=True)
         mock_service_cls.return_value = mock_service
 
@@ -246,6 +249,7 @@ class TestReindexEvent:
         mock_event.name = "HiPEAC 2026"
 
         mock_service = MagicMock()
+        mock_service.health_check = AsyncMock(return_value=True)
         mock_service.index_event = AsyncMock(return_value=False)
         mock_service_cls.return_value = mock_service
 
@@ -254,3 +258,53 @@ class TestReindexEvent:
             pytest.raises(RuntimeError, match="reindex failed"),
         ):
             await _reindex_event(100)
+
+
+class TestReindexHealthCheck:
+    """Regression tests for the embedding provider health check before reindex."""
+
+    @patch("hipeac_mcp.tasks.VisionRagService")
+    @patch("hipeac_mcp.tasks.VisionArticle")
+    @patch("hipeac_mcp.tasks.ensure_connection_async")
+    async def test_vision_aborts_when_provider_unhealthy(self, mock_ensure, mock_article_cls, mock_service_cls):
+        """Reindex aborts before reset_index when the embedding provider is down.
+
+        Regression: previously the index was wiped first, then the embedding
+        API was called. If the API failed (e.g. OpenAI quota exhausted), the
+        old index was lost and searches returned empty results.
+        """
+        import pytest
+
+        mock_service = MagicMock()
+        mock_service.health_check = AsyncMock(return_value=False)
+        mock_service_cls.return_value = mock_service
+
+        with pytest.raises(RuntimeError, match="embedding provider is unavailable"):
+            await _reindex_vision_year(2025)
+
+        mock_service.reset_index.assert_not_called()
+        mock_service.index_article.assert_not_called()
+
+    @patch("hipeac_mcp.tasks.EventRagService")
+    @patch("hipeac_mcp.tasks.Event")
+    @patch("hipeac_mcp.tasks.ensure_connection_async")
+    async def test_event_aborts_when_provider_unhealthy(self, mock_ensure, mock_event_cls, mock_service_cls):
+        """Event reindex aborts before reset_index when the embedding provider is down."""
+        import pytest
+
+        mock_event = MagicMock()
+        mock_event.id = 100
+        mock_event.name = "HiPEAC 2026"
+
+        mock_service = MagicMock()
+        mock_service.health_check = AsyncMock(return_value=False)
+        mock_service_cls.return_value = mock_service
+
+        with (
+            patch("hipeac_mcp.tasks.sync_to_async", return_value=AsyncMock(return_value=mock_event)),
+            pytest.raises(RuntimeError, match="embedding provider is unavailable"),
+        ):
+            await _reindex_event(100)
+
+        mock_service.reset_index.assert_not_called()
+        mock_service.index_event.assert_not_called()

@@ -91,6 +91,17 @@ class BaseRagService:
         """
         return await self.embedding_provider.generate_embedding(text)
 
+    async def health_check(self) -> bool:
+        """Check if the embedding provider is operational.
+
+        Call this before destructive operations (e.g. ``reset_index``) to
+        avoid wiping a good index when the provider is down (quota exhausted,
+        network failure, etc.).
+
+        :returns: True if the provider can generate embeddings, False otherwise.
+        """
+        return await self.embedding_provider.health_check()
+
     async def _faiss_search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Run a single FAISS similarity search for one query string.
 

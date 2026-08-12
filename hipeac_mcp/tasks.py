@@ -104,11 +104,22 @@ async def _reindex_vision_year(year: int) -> None:
     Fetches articles from the database, generates embeddings via OpenAI,
     and rebuilds the FAISS index.
 
+    Aborts before resetting the existing index if the embedding provider
+    is unavailable (e.g. OpenAI quota exhausted), preserving the last good
+    index for search.
+
     :param year: Vision year to reindex.
     """
     await ensure_connection_async()
 
     service = VisionRagService(year=year)
+
+    if not await service.health_check():
+        raise RuntimeError(
+            f"Aborted reindex for Vision {year}: embedding provider is unavailable "
+            f"(check OpenAI quota/billing). Existing index preserved."
+        )
+
     service.reset_index()
 
     queryset = VisionArticle.objects.filter(section__vision__year=year).select_related("section__vision")
@@ -133,12 +144,23 @@ async def _reindex_event(event_id: int) -> None:
     Fetches the event from the database, generates documents and embeddings,
     and rebuilds the FAISS index.
 
+    Aborts before resetting the existing index if the embedding provider
+    is unavailable (e.g. OpenAI quota exhausted), preserving the last good
+    index for search.
+
     :param event_id: Event primary key to reindex.
     """
     await ensure_connection_async()
 
     event = await sync_to_async(Event.objects.get)(id=event_id)
     service = EventRagService(event_id=event_id)
+
+    if not await service.health_check():
+        raise RuntimeError(
+            f"Aborted reindex for event {event_id} ({event.name}): embedding provider "
+            f"is unavailable (check OpenAI quota/billing). Existing index preserved."
+        )
+
     service.reset_index()
 
     logger.info(f"Reindexing event {event_id} ({event.name})")
