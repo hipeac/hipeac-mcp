@@ -7,7 +7,7 @@ class TestServerInitialization:
     """Tests for MCP server initialization."""
 
     def test_mcp_server_exists(self):
-        """Test that FastMCP server instance is created."""
+        """Test that MCPServer instance is created."""
         from hipeac_mcp import mcp
 
         assert mcp is not None
@@ -29,7 +29,7 @@ class TestServerInitialization:
         from hipeac_mcp import mcp
 
         templates = asyncio.run(mcp.list_resource_templates())
-        uris = [str(t.uriTemplate) for t in templates]
+        uris = [str(t.uri_template) for t in templates]
         assert "hipeac://vision/{year}/{slug}" in uris
         assert "hipeac://vision/{year}" in uris
 

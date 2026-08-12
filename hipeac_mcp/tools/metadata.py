@@ -3,7 +3,7 @@
 Provides structured metadata used by other tools in the MCP server.
 """
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
 
 from hipeac_mcp import mcp

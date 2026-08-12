@@ -9,7 +9,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
-from . import mcp
+from . import mcp, transport_security
+from .settings import MCP_HTTP_PATH
 
 
 class DatabaseConnectionMiddleware(BaseHTTPMiddleware):
@@ -41,5 +42,8 @@ class DatabaseConnectionMiddleware(BaseHTTPMiddleware):
             close_old_connections()
 
 
-app = mcp.streamable_http_app()
+app = mcp.streamable_http_app(
+    streamable_http_path=MCP_HTTP_PATH,
+    transport_security=transport_security,
+)
 app.add_middleware(DatabaseConnectionMiddleware)

@@ -15,7 +15,7 @@ from enum import Enum
 from typing import cast
 
 import redis
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from hipeac_mcp.redis import get_redis_client
 
@@ -39,7 +39,7 @@ def _serialize_param(value: object) -> object:
 
 
 def _is_context_param(param: inspect.Parameter) -> bool:
-    """Check if a parameter is a FastMCP Context injection.
+    """Check if a parameter is an MCPServer Context injection.
 
     :param param: The parameter to check.
     :returns: True if the parameter is annotated with Context.
@@ -53,7 +53,7 @@ def _build_params(
 ) -> dict[str, object]:
     """Extract and serialize all non-default parameters from a function call.
 
-    Context-typed parameters are excluded since they are injected by FastMCP.
+    Context-typed parameters are excluded since they are injected by MCPServer.
 
     :param func: The decorated function.
     :param args: Positional arguments.

@@ -6,7 +6,7 @@ based on research interests, location, and institutional affiliation.
 
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
 from pydantic import HttpUrl
 

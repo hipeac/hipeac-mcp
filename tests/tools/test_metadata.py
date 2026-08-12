@@ -26,7 +26,7 @@ class TestMetadataTool:
         assert callable(get_metadata)
 
     def test_get_metadata_no_parameters(self):
-        """Test get_metadata has no required parameters (ctx is injected by FastMCP)."""
+        """Test get_metadata has no required parameters (ctx is injected by MCPServer)."""
         from hipeac_mcp.tools.metadata import get_metadata
 
         sig = inspect.signature(get_metadata)

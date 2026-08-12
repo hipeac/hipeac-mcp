@@ -4,9 +4,9 @@ import logging
 import os
 
 import sentry_sdk
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.server import Icon
+from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import Icon
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.mcp import MCPIntegration
 
@@ -50,9 +50,8 @@ transport_security = TransportSecuritySettings(
     allowed_hosts=["mcp.hipeac.net", "mcp.hipeac.net:*", "localhost:*", "127.0.0.1:*"],
 )
 
-mcp = FastMCP(
+mcp = MCPServer(
     "HiPEAC",
-    streamable_http_path="/",
     instructions=server_instructions,
     website_url="https://www.hipeac.net/mcp/",
     icons=[
@@ -61,7 +60,6 @@ mcp = FastMCP(
             mimeType="image/png",
         )
     ],
-    transport_security=transport_security,
 )
 
 from . import resources, tools  # type: ignore[reportUnusedImport] # noqa: E402, F401

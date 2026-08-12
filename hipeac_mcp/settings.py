@@ -61,3 +61,6 @@ DATABASE_ROUTERS = ["hipeac_mcp.db.ReadOnlyRouter"]
 FAISS_INDEX_PATH = os.environ.get(
     "HIPEAC_FAISS_INDEX_PATH", "/storage/faiss" if os.path.exists("/storage") else ".faiss"
 )
+
+# MCP Streamable HTTP endpoint path.
+MCP_HTTP_PATH = os.environ.get("MCP_HTTP_PATH", "/")

@@ -9,7 +9,7 @@ from enum import Enum
 from unittest.mock import MagicMock, patch
 
 import pytest
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from hipeac_mcp.services.analytics import REDIS_KEY, _build_params, _extract_client_info, _serialize_param, track_usage
 

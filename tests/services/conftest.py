@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from unittest.mock import MagicMock
 
 import pytest
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 
 @dataclass
@@ -38,7 +38,7 @@ class FakeRequestContext:
 
 @dataclass
 class FakeContext:
-    """Structured mock for FastMCP Context that mirrors the real attribute chain.
+    """Structured mock for MCPServer Context that mirrors the real attribute chain.
 
     Using dataclasses instead of MagicMock ensures tests fail if product code
     accesses wrong attribute names (e.g. ``clientInfo`` instead of ``client_info``).
