@@ -43,7 +43,8 @@ async def get_metadata(ctx: Context = None) -> MetadataResponse:
     """Get available metadata as structured JSON.
 
     Returns all metadata categories including topics, application areas,
-    institution types, and membership types. Used by other tools in the MCP server.
+    institution types, employment types, career levels, and membership types.
+    Used by other tools in the MCP server.
 
     :returns: Structured metadata with all categories
     """
@@ -53,6 +54,8 @@ async def get_metadata(ctx: Context = None) -> MetadataResponse:
         MetadataType.TOPIC.value: "topics",
         MetadataType.APPLICATION_AREA.value: "application_areas",
         MetadataType.INSTITUTION_TYPE.value: "institution_types",
+        MetadataType.EMPLOYMENT_TYPE.value: "employment_types",
+        MetadataType.CAREER_LEVEL.value: "career_levels",
     }
 
     response_data = {key: [] for key in type_mapping.values()}

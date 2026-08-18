@@ -14,6 +14,7 @@ from .events import (
     Session,
 )
 from .institutions import Institution, RelInstitution
+from .jobs import Job
 from .membership import Membership
 from .metadata import Metadata, RelApplicationArea, RelTopic
 from .users import User
@@ -27,6 +28,7 @@ __all__ = [
     "EventMetadata",
     "EventUser",
     "Institution",
+    "Job",
     "Membership",
     "Metadata",
     "Place",

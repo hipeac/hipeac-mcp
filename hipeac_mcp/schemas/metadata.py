@@ -11,6 +11,8 @@ class MetadataType(StrEnum):
     APPLICATION_AREA = "application_area"
     TOPIC = "topic"
     INSTITUTION_TYPE = "institution_type"
+    EMPLOYMENT_TYPE = "employment_type"
+    CAREER_LEVEL = "career_level"
 
 
 class MetadataItem(BaseModel):
@@ -43,3 +45,5 @@ class MetadataResponse(BaseModel):
     institution_types: list[MetadataItem] | None = None
     membership_types: list[MembershipTypeItem] | None = None
     topics: list[MetadataItem] | None = None
+    employment_types: list[MetadataItem] | None = None
+    career_levels: list[MetadataItem] | None = None
