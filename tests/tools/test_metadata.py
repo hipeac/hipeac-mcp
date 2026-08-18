@@ -99,3 +99,25 @@ class TestMetadataTool:
         assert result.application_areas is not None and len(result.application_areas) > 0
         assert result.institution_types is not None and len(result.institution_types) > 0
         assert result.membership_types is not None and len(result.membership_types) == 4
+
+
+class TestFetchMetadataItems:
+    """Tests for the fetch_metadata_items helper shared with search_members."""
+
+    @patch("hipeac_mcp.tools.metadata.Metadata")
+    async def test_groups_items_by_type(self, mock_metadata):
+        """Groups metadata rows into a {type: {id: item}} mapping, fetched fresh each call."""
+        from hipeac_mcp.tools.metadata import fetch_metadata_items
+
+        mock_topic = Mock(id=1, value="Machine Learning", type="topic")
+        mock_inst_type = Mock(id=3, value="University", type="institution_type ")  # trailing space, like the DB field
+
+        mock_qs = MagicMock()
+        mock_qs.only.return_value = mock_qs
+        mock_qs.__aiter__ = lambda self: make_async_iterator([mock_topic, mock_inst_type])
+        mock_metadata.objects.all.return_value = mock_qs
+
+        result = await fetch_metadata_items()
+
+        assert result["topic"][1].value == "Machine Learning"
+        assert result["institution_type"][3].value == "University"

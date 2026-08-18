@@ -17,32 +17,7 @@ from hipeac_mcp.services.analytics import track_usage
 from ..models import RelApplicationArea, RelInstitution, RelTopic, User
 from ..schemas.members import Institution, Member, MemberSearchResponse
 from ..schemas.metadata import MembershipType, MetadataItem
-
-
-# Cache for metadata to avoid repeated queries
-_metadata_cache: dict[str, dict[int, MetadataItem]] = {}
-
-
-async def _ensure_metadata_cache():
-    """Ensure metadata cache is populated."""
-    if _metadata_cache:
-        return
-
-    await ensure_connection_async()
-
-    from ..models import Metadata
-
-    # Load all metadata into cache
-    async for item in Metadata.objects.all().only("id", "type", "value"):
-        cache_key = item.type.strip()
-        if cache_key not in _metadata_cache:
-            _metadata_cache[cache_key] = {}
-        _metadata_cache[cache_key][item.id] = MetadataItem(id=item.id, value=item.value)  # type: ignore
-
-
-def _get_metadata_item(type_key: str, item_id: int) -> MetadataItem | None:
-    """Get a metadata item from cache."""
-    return _metadata_cache.get(type_key, {}).get(item_id)
+from .metadata import fetch_metadata_items
 
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
@@ -145,8 +120,10 @@ async def search_members(
     if not members:
         return MemberSearchResponse(total=0, limit=actual_limit, members=[])
 
-    # Ensure metadata cache is populated
-    await _ensure_metadata_cache()
+    metadata_items = await fetch_metadata_items()
+
+    def get_metadata_item(type_key: str, item_id: int) -> MetadataItem | None:
+        return metadata_items.get(type_key, {}).get(item_id)
 
     # Batch-fetch all related data for the returned members in 3 queries instead of N×3.
     user_ids = [user.id for user in members]
@@ -176,7 +153,7 @@ async def search_members(
                 name=rel.institution.name,
                 country=rel.institution.country,
                 type=(
-                    _get_metadata_item("institution_type", rel.institution.type_id)  # type: ignore
+                    get_metadata_item("institution_type", rel.institution.type_id)  # type: ignore
                     if hasattr(rel.institution, "type_id") and rel.institution.type_id  # type: ignore
                     else None
                 ),
@@ -187,14 +164,14 @@ async def search_members(
         topics_list = [
             item
             for rel in topics_by_user[user.id]  # type: ignore
-            if (item := _get_metadata_item("topic", rel.topic_id)) is not None  # type: ignore
+            if (item := get_metadata_item("topic", rel.topic_id)) is not None  # type: ignore
         ]
         topics = topics_list if topics_list else None
 
         areas_list = [
             item
             for rel in areas_by_user[user.id]  # type: ignore
-            if (item := _get_metadata_item("application_area", rel.application_area_id)) is not None  # type: ignore
+            if (item := get_metadata_item("application_area", rel.application_area_id)) is not None  # type: ignore
         ]
         application_areas = areas_list if areas_list else None
 

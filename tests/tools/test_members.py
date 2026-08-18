@@ -23,7 +23,7 @@ class TestMemberTools:
 
         assert callable(search_members)
 
-    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -51,7 +51,7 @@ class TestMemberTools:
         assert result.total == 0
         assert result.members == []
 
-    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -108,7 +108,7 @@ class TestMemberTools:
         assert result.members[0].username == "jsmith"
         assert str(result.members[0].profile_url) == "https://www.hipeac.net/~jsmith/"
 
-    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -206,7 +206,7 @@ class TestMemberTools:
         call_args = mock_qs.__getitem__.call_args
         assert call_args[0][0].stop == 100
 
-    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -242,7 +242,7 @@ class TestMemberTools:
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
 
-    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -278,7 +278,7 @@ class TestMemberTools:
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
 
-    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -313,7 +313,7 @@ class TestMemberTools:
         assert isinstance(result, MemberSearchResponse)
         assert result.total == 0
 
-    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")
@@ -490,26 +490,10 @@ class TestMemberModels:
         assert RelInstitution is not None
 
 
-class TestEnsureMetadataCache:
-    """Tests for the _ensure_metadata_cache helper."""
-
-    async def test_returns_early_when_already_populated(self):
-        """Does not query the database when the cache is already warm."""
-        from hipeac_mcp.tools.members import _ensure_metadata_cache, _metadata_cache
-
-        _metadata_cache["topic"] = {1: MagicMock()}  # pre-warm the cache
-        try:
-            with patch("hipeac_mcp.tools.members.ensure_connection_async", new_callable=AsyncMock) as mock_conn:
-                await _ensure_metadata_cache()
-            mock_conn.assert_not_called()
-        finally:
-            _metadata_cache.clear()
-
-
 class TestSearchMembersWithActiveMembership:
     """Tests that the active membership branch is reached."""
 
-    @patch("hipeac_mcp.tools.members._ensure_metadata_cache", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")
     @patch("hipeac_mcp.tools.members.RelTopic")
     @patch("hipeac_mcp.tools.members.RelApplicationArea")

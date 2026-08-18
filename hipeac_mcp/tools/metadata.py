@@ -20,6 +20,23 @@ from ..schemas.metadata import (
 )
 
 
+async def fetch_metadata_items() -> dict[str, dict[int, MetadataItem]]:
+    """Fetch all metadata rows fresh from the database, grouped by type.
+
+    Shared by ``get_metadata`` and ``search_members`` so both always see the
+    same, current data — no separate cache to fall out of sync.
+
+    :returns: Mapping of metadata type key (e.g. ``"topic"``) to {item id: MetadataItem}.
+    """
+    await ensure_connection_async()
+
+    result: dict[str, dict[int, MetadataItem]] = {}
+    async for item in Metadata.objects.all().only("id", "type", "value"):
+        key = item.type.strip()
+        result.setdefault(key, {})[item.id] = MetadataItem(id=item.id, value=item.value)  # type: ignore
+    return result
+
+
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
 @track_usage
 async def get_metadata(ctx: Context = None) -> MetadataResponse:
