@@ -13,8 +13,8 @@ from sentry_sdk.integrations.mcp import MCPIntegration
 from .db import setup_django
 
 
-# Disable OpenAI Agents integration: openai-agents is a dev-only dependency
-# and the Sentry integration is incompatible with the installed version.
+# openai-agents is a dev-only dependency, so this import fails (and the
+# integration stays disabled) in production where it isn't installed.
 _disabled = []
 
 try:
