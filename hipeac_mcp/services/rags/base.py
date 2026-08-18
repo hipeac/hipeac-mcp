@@ -48,13 +48,26 @@ class BaseRagService:
         self._load_or_create_index()
 
     def _load_or_create_index(self) -> None:
-        """Load existing FAISS index or create a new one."""
+        """Load existing FAISS index or create a new one.
+
+        The class-level cache is keyed by collection name and shared across
+        service instances within this process, but a *separate* process (e.g.
+        a reindex management command) can rewrite the index files on disk at
+        any time. Compare the cached entry's on-disk mtime against the file's
+        current mtime and reload whenever they diverge, so a long-running
+        server process picks up reindexes without needing a restart.
+        """
+        on_disk_mtime = self.index_path.stat().st_mtime if self.index_path.exists() else None
+
         if self.COLLECTION_NAME in self._cache:
-            self.index, self.metadata_store, _ = self._cache[self.COLLECTION_NAME]
-            if self.index is not None:
-                self.embedding_dimension = self.index.d
-            logger.info(f"Used cached index '{self.COLLECTION_NAME}'")
-            return
+            cached_index, cached_metadata, cached_mtime = self._cache[self.COLLECTION_NAME]
+            if on_disk_mtime is None or cached_mtime == on_disk_mtime:
+                self.index, self.metadata_store = cached_index, cached_metadata
+                if self.index is not None:
+                    self.embedding_dimension = self.index.d
+                logger.info(f"Used cached index '{self.COLLECTION_NAME}'")
+                return
+            logger.info(f"On-disk index '{self.COLLECTION_NAME}' changed since caching — reloading")
 
         if self.index_path.exists() and self.metadata_path.exists():
             self.index = cast(faiss.IndexFlatIP, faiss.read_index(str(self.index_path)))  # type: ignore[no-untyped-call]
@@ -70,9 +83,10 @@ class BaseRagService:
         self._update_cache()
 
     def _update_cache(self) -> None:
-        """Update the in-memory cache with current index state."""
+        """Update the in-memory cache with current index state and on-disk mtime."""
         if self.COLLECTION_NAME:
-            self._cache[self.COLLECTION_NAME] = (self.index, self.metadata_store, time.time())
+            mtime = self.index_path.stat().st_mtime if self.index_path.exists() else time.time()
+            self._cache[self.COLLECTION_NAME] = (self.index, self.metadata_store, mtime)
 
     def _save_index(self) -> None:
         """Save FAISS index and metadata to disk."""

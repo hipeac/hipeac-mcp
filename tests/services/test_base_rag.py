@@ -74,6 +74,39 @@ class TestBaseRagServiceInit:
         second = ConcreteRagService()
         assert second.index is first.index
 
+    def test_reloads_when_on_disk_index_changed_since_caching(self, mock_faiss_paths, mock_embedding_provider):
+        """A separate process rewriting the index file on disk invalidates the cache.
+
+        Regression: the class-level cache used to be trusted forever within a
+        process, so a long-running MCP server would never see a reindex done
+        by another process (e.g. a management command) until restarted.
+        """
+        first = ConcreteRagService()
+        embeddings = np.random.rand(1, 128).tolist()
+        first.upsert_documents(["doc1"], ["content"], embeddings, [{}])
+        cached_mtime = BaseRagService._cache["test_collection"][2]
+
+        # Simulate an external reindex: the file on disk gets a newer mtime.
+        new_mtime = cached_mtime + 10
+        import os
+
+        os.utime(first.index_path, (new_mtime, new_mtime))
+
+        second = ConcreteRagService()
+
+        assert second.index is not first.index
+        assert BaseRagService._cache["test_collection"][2] == pytest.approx(new_mtime)
+
+    def test_no_reload_when_on_disk_index_unchanged(self, mock_faiss_paths, mock_embedding_provider):
+        """No cache file exists yet: an empty in-memory index is still reused as-is."""
+        first = ConcreteRagService()
+        first.index = faiss.IndexFlatIP(128)
+        first._update_cache()
+
+        second = ConcreteRagService()
+
+        assert second.index is first.index
+
 
 class TestUpsertDocuments:
     """Tests for upsert_documents."""
