@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from hipeac_mcp.schemas.events import EventActivityResult, EventListResponse, EventSearchResponse
-from hipeac_mcp.tools.events import _get_service, _service_cache, get_events, search_event
+from hipeac_mcp.tools.events import _get_service, _service_cache, list_events, search_in_event
 
 
 @pytest.fixture(autouse=True)
@@ -109,13 +109,13 @@ class TestGetServiceCache:
         assert mock_cls.call_count == 2
 
 
-class TestGetEvents:
-    """Tests for the get_events MCP tool."""
+class TestListEvents:
+    """Tests for the list_events MCP tool."""
 
     @patch("hipeac_mcp.tools.events.ensure_connection_async", new_callable=AsyncMock)
     @patch("hipeac_mcp.tools.events.Event")
     async def test_returns_event_list(self, mock_event_cls, mock_conn):
-        """get_events returns a structured EventListResponse."""
+        """list_events returns a structured EventListResponse."""
         event1 = _make_event(100, "HiPEAC 2026", "conference")
         event2 = _make_event(200, "ACACES 2025", "acaces", city="Fiuggi", country="IT", year=2025)
 
@@ -124,7 +124,7 @@ class TestGetEvents:
         mock_event_cls.CONFERENCE = "conference"
         mock_event_cls.ACACES = "acaces"
 
-        result = await get_events.__wrapped__()
+        result = await list_events.__wrapped__()
 
         assert isinstance(result, EventListResponse)
         assert result.total == 2
@@ -142,7 +142,7 @@ class TestGetEvents:
         mock_event_cls.CONFERENCE = "conference"
         mock_event_cls.ACACES = "acaces"
 
-        result = await get_events.__wrapped__()
+        result = await list_events.__wrapped__()
 
         assert result.events[0].url == "https://www.hipeac.net/2026/kraków/"
 
@@ -155,7 +155,7 @@ class TestGetEvents:
         mock_event_cls.CONFERENCE = "conference"
         mock_event_cls.ACACES = "acaces"
 
-        result = await get_events.__wrapped__()
+        result = await list_events.__wrapped__()
 
         assert result.total == 0
         assert result.events == []
@@ -169,7 +169,7 @@ class TestGetEvents:
         mock_event_cls.CONFERENCE = "conference"
         mock_event_cls.ACACES = "acaces"
 
-        await get_events.__wrapped__(event_type="acaces")
+        await list_events.__wrapped__(event_type="acaces")
 
         mock_event_cls.objects.filter.assert_called_once_with(type__in=["acaces"])
 
@@ -184,7 +184,7 @@ class TestGetEvents:
         mock_event_cls.CONFERENCE = "conference"
         mock_event_cls.ACACES = "acaces"
 
-        await get_events.__wrapped__(year=2025)
+        await list_events.__wrapped__(year=2025)
 
         mock_event_cls.objects.filter.return_value.filter.assert_called_once_with(start_date__year=2025)
 
@@ -202,13 +202,13 @@ class TestGetEvents:
         mock_event_cls.CONFERENCE = "conference"
         mock_event_cls.ACACES = "acaces"
 
-        await get_events.__wrapped__(limit=200)
+        await list_events.__wrapped__(limit=200)
 
         assert captured_slice["slice"].stop == 50
 
 
-class TestSearchEvent:
-    """Tests for the search_event MCP tool."""
+class TestSearchInEvent:
+    """Tests for the search_in_event MCP tool."""
 
     @patch("hipeac_mcp.tools.events._get_service")
     async def test_explicit_event_id(self, mock_get_svc):
@@ -217,7 +217,7 @@ class TestSearchEvent:
         mock_service.search_activities.return_value = _make_search_response("RISC-V")
         mock_get_svc.return_value = mock_service
 
-        result = await search_event.__wrapped__("RISC-V", event_id=100)
+        result = await search_in_event.__wrapped__("RISC-V", event_id=100)
 
         mock_get_svc.assert_called_once_with(100)
         assert result.total_results == 1
@@ -236,7 +236,7 @@ class TestSearchEvent:
         mock_service.search_activities.return_value = _make_search_response("test")
         mock_get_svc.return_value = mock_service
 
-        result = await search_event.__wrapped__("test")
+        result = await search_in_event.__wrapped__("test")
 
         mock_get_svc.assert_called_once_with(100)
         assert result.total_results == 1
@@ -248,7 +248,7 @@ class TestSearchEvent:
         """When no conference exists, returns an empty response."""
         mock_s2a.return_value = AsyncMock(return_value=None)
 
-        result = await search_event.__wrapped__("test")
+        result = await search_in_event.__wrapped__("test")
 
         mock_get_svc.assert_not_called()
         assert result.total_results == 0
@@ -261,7 +261,7 @@ class TestSearchEvent:
         mock_service.search_activities.return_value = _make_search_response()
         mock_get_svc.return_value = mock_service
 
-        await search_event.__wrapped__("test", event_id=100, limit=8)
+        await search_in_event.__wrapped__("test", event_id=100, limit=8)
 
         mock_service.search_activities.assert_called_once_with(["test"], limit=8)
 
@@ -279,4 +279,4 @@ class TestSearchEvent:
         mock_s2a.return_value = AsyncMock(side_effect=Exception("DB error"))
 
         with pytest.raises(Exception, match="DB error"):
-            await search_event.__wrapped__("test")
+            await search_in_event.__wrapped__("test")

@@ -20,8 +20,10 @@ class TestServerInitialization:
         tool_names = [t.name for t in asyncio.run(mcp.list_tools())]
         assert "get_metadata" in tool_names
         assert "search_members" in tool_names
-        assert "get_events" in tool_names
-        assert "search_event" in tool_names
+        assert "list_events" in tool_names
+        assert "search_in_event" in tool_names
+        assert "search_jobs" in tool_names
+        assert "get_job" in tool_names
         assert "search_vision" in tool_names
 
     def test_resources_registered(self):

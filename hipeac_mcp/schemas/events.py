@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 
 
 class EventSummary(BaseModel):
-    """Basic event information returned by get_events."""
+    """Basic event information returned by list_events."""
 
-    id: int = Field(..., description="Event ID, used as identifier for search_event")
+    id: int = Field(..., description="Event ID, used as identifier for search_in_event")
     name: str = Field(..., description="Event name (e.g., 'HiPEAC 2026', 'ACACES 2025')")
     type: str = Field(..., description="Event type: 'conference' or 'acaces'")
     is_virtual: bool = Field(False, description="Whether the event was held online (no physical location)")
@@ -18,7 +18,7 @@ class EventSummary(BaseModel):
 
 
 class EventListResponse(BaseModel):
-    """Response from get_events tool."""
+    """Response from list_events tool."""
 
     total: int = Field(..., description="Total number of events returned")
     events: list[EventSummary] = Field(..., description="List of events")
@@ -53,7 +53,7 @@ class EventActivityResult(BaseModel):
 
 
 class EventSearchResponse(BaseModel):
-    """Response from search_event tool."""
+    """Response from search_in_event tool."""
 
     query: str = Field(..., description="The search query used")
     event_name: str = Field(..., description="Event name searched")

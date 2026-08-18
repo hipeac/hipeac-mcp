@@ -30,17 +30,17 @@ def _get_service(event_id: int) -> EventRagService:
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
 @track_usage
-async def get_events(
+async def list_events(
     event_type: str | None = None,
     year: int | None = None,
     limit: int = 20,
     ctx: Context = None,
 ) -> EventListResponse:
-    """Get available HiPEAC events (conferences and ACACES summer schools).
+    """List available HiPEAC events (conferences and ACACES summer schools).
 
     Returns a list of events with their IDs, which can be used with the
-    ``search_event`` tool for detailed searches. Only conferences and ACACES
-    events are included (CSW events are legacy and excluded).
+    ``search_in_event`` tool to search within one of them. Only conferences
+    and ACACES events are included (CSW events are legacy and excluded).
 
     :param event_type: Filter by event type: 'conference' or 'acaces'. Omit for both.
     :param year: Filter to events starting in this year. Omit for the most recent events.
@@ -76,17 +76,22 @@ async def get_events(
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
 @track_usage
-async def search_event(
+async def search_in_event(
     query: str,
     queries: list[str] | None = None,
     event_id: int | None = None,
     limit: int = 5,
     ctx: Context = None,
 ) -> EventSearchResponse:
-    """Search HiPEAC event activities using semantic search.
+    """Search within one HiPEAC event's content using semantic search.
 
-    Returns ranked activities with summaries, speakers/organizers, and content
-    previews. Call ``get_events`` first to get a valid ``event_id``.
+    Searches everything indexed for a single event — its overview/schedule
+    and its individual activities (keynotes, courses, workshops) — not
+    across multiple events. Call ``list_events`` first to get a valid
+    ``event_id``.
+
+    Returns ranked results with summaries, speakers/organizers, and content
+    previews.
 
     This is direct embedding-based vector search with no LLM interpretation
     layer: rephrase the user's question into a concise, keyword-rich query
@@ -96,7 +101,7 @@ async def search_event(
 
     :param query: Primary natural language question or topic to search for.
     :param queries: Up to 2 additional query variants for multi-angle search.
-    :param event_id: Event ID to search (from ``get_events``). Defaults to latest conference.
+    :param event_id: Event ID to search (from ``list_events``). Defaults to latest conference.
     :param limit: Maximum number of results to return (default: 5, max: 10).
     :returns: Structured search results with ranked activities.
     """
