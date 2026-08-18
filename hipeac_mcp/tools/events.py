@@ -30,18 +30,30 @@ def _get_service(event_id: int) -> EventRagService:
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(readOnlyHint=True))
 @track_usage
-async def get_events(ctx: Context = None) -> EventListResponse:
+async def get_events(
+    event_type: str | None = None,
+    year: int | None = None,
+    limit: int = 20,
+    ctx: Context = None,
+) -> EventListResponse:
     """Get available HiPEAC events (conferences and ACACES summer schools).
 
     Returns a list of events with their IDs, which can be used with the
     ``search_event`` tool for detailed searches. Only conferences and ACACES
     events are included (CSW events are legacy and excluded).
 
+    :param event_type: Filter by event type: 'conference' or 'acaces'. Omit for both.
+    :param year: Filter to events starting in this year. Omit for the most recent events.
+    :param limit: Maximum number of events to return (default: 20, max: 50).
     :returns: Structured list of available events.
     """
     await ensure_connection_async()
 
-    events_qs = Event.objects.filter(type__in=[Event.CONFERENCE, Event.ACACES]).order_by("-start_date")[:20]
+    event_types = [event_type] if event_type else [Event.CONFERENCE, Event.ACACES]
+    events_qs = Event.objects.filter(type__in=event_types)
+    if year is not None:
+        events_qs = events_qs.filter(start_date__year=year)
+    events_qs = events_qs.order_by("-start_date")[: min(limit, 50)]
 
     events = []
     async for event in events_qs:
@@ -74,28 +86,13 @@ async def search_event(
     """Search HiPEAC event activities using semantic search.
 
     Returns ranked activities with summaries, speakers/organizers, and content
-    previews. The MCP client should synthesize insights from the returned data.
+    previews. Call ``get_events`` first to get a valid ``event_id``.
 
-    **IMPORTANT**: Before using this tool, call ``get_events`` to retrieve valid
-    event IDs. Pass the ``event_id`` for the event you want to search.
-
-    **Query Optimization:**
-    This tool performs direct embedding-based vector search — there is no LLM
-    interpretation layer. You MUST rephrase the user's question into a concise,
-    keyword-rich search query optimized for semantic similarity matching.
-    Strip conversational framing and retain only the topic keywords, activity type,
-    and any relevant context (e.g. speaker role, session format, logistics).
-
-    **Use Cases:**
-    - Finding sessions on a topic: topic keywords + activity type (workshop, tutorial…)
-    - Speaker lookup: person name or role + topic domain
-    - Schedule / logistics: session format keyword + time or venue term
-
-    **Multi-Query Strategy:**
-    For complex or multi-faceted questions, pass up to 2 extra query variants
-    via ``queries`` to improve recall across different semantic angles.
-    Each variant should probe a distinct dimension of the question (e.g. one targeting
-    the technical topic, another targeting the application domain or event format).
+    This is direct embedding-based vector search with no LLM interpretation
+    layer: rephrase the user's question into a concise, keyword-rich query
+    (topic + activity type, e.g. "compiler optimization workshop"). For
+    multi-faceted questions, pass up to 2 extra angle-specific variants via
+    ``queries`` — all are searched in parallel and merged.
 
     :param query: Primary natural language question or topic to search for.
     :param queries: Up to 2 additional query variants for multi-angle search.
@@ -105,14 +102,10 @@ async def search_event(
     """
     if event_id is None:
         await ensure_connection_async()
-        try:
-            latest = await sync_to_async(Event.objects.filter(type=Event.CONFERENCE).order_by("-start_date").first)()
-            if latest:
-                event_id = latest.id
-            else:
-                return EventSearchResponse(query=query, event_name="", event_id=0, total_results=0, results=[])
-        except Exception:
+        latest = await sync_to_async(Event.objects.filter(type=Event.CONFERENCE).order_by("-start_date").first)()
+        if latest is None:
             return EventSearchResponse(query=query, event_name="", event_id=0, total_results=0, results=[])
+        event_id = latest.id
 
     all_queries = [query] + (queries[:2] if queries else [])
     service = _get_service(event_id)

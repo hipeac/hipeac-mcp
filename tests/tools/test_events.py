@@ -160,6 +160,52 @@ class TestGetEvents:
         assert result.total == 0
         assert result.events == []
 
+    @patch("hipeac_mcp.tools.events.ensure_connection_async", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.events.Event")
+    async def test_event_type_filter_narrows_query(self, mock_event_cls, mock_conn):
+        """Passing event_type queries only that type instead of conference+acaces."""
+        mock_qs = _make_async_iterator([])
+        mock_event_cls.objects.filter.return_value.order_by.return_value.__getitem__ = lambda s, k: mock_qs
+        mock_event_cls.CONFERENCE = "conference"
+        mock_event_cls.ACACES = "acaces"
+
+        await get_events.__wrapped__(event_type="acaces")
+
+        mock_event_cls.objects.filter.assert_called_once_with(type__in=["acaces"])
+
+    @patch("hipeac_mcp.tools.events.ensure_connection_async", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.events.Event")
+    async def test_year_filter_applied(self, mock_event_cls, mock_conn):
+        """Passing year chains an additional start_date__year filter."""
+        mock_qs = _make_async_iterator([])
+        year_filtered = MagicMock()
+        year_filtered.order_by.return_value.__getitem__ = lambda s, k: mock_qs
+        mock_event_cls.objects.filter.return_value.filter.return_value = year_filtered
+        mock_event_cls.CONFERENCE = "conference"
+        mock_event_cls.ACACES = "acaces"
+
+        await get_events.__wrapped__(year=2025)
+
+        mock_event_cls.objects.filter.return_value.filter.assert_called_once_with(start_date__year=2025)
+
+    @patch("hipeac_mcp.tools.events.ensure_connection_async", new_callable=AsyncMock)
+    @patch("hipeac_mcp.tools.events.Event")
+    async def test_limit_capped_at_50(self, mock_event_cls, mock_conn):
+        """limit is capped at 50 even if a larger value is requested."""
+        captured_slice = {}
+
+        def capture_slice(self, k):
+            captured_slice["slice"] = k
+            return _make_async_iterator([])
+
+        mock_event_cls.objects.filter.return_value.order_by.return_value.__getitem__ = capture_slice
+        mock_event_cls.CONFERENCE = "conference"
+        mock_event_cls.ACACES = "acaces"
+
+        await get_events.__wrapped__(limit=200)
+
+        assert captured_slice["slice"].stop == 50
+
 
 class TestSearchEvent:
     """Tests for the search_event MCP tool."""
@@ -222,11 +268,15 @@ class TestSearchEvent:
     @patch("hipeac_mcp.tools.events._get_service")
     @patch("hipeac_mcp.tools.events.sync_to_async")
     @patch("hipeac_mcp.tools.events.ensure_connection_async", new_callable=AsyncMock)
-    async def test_database_error_returns_empty(self, mock_conn, mock_s2a, mock_get_svc):
-        """Database errors during latest conference lookup return an empty response."""
+    async def test_database_error_propagates(self, mock_conn, mock_s2a, mock_get_svc):
+        """Database errors during latest conference lookup propagate rather than being swallowed.
+
+        Regression: a bare `except Exception` used to turn any DB failure into a
+        silent empty response, indistinguishable from "no conference exists yet".
+        Real failures must surface so they're visible (logs, Sentry) instead of
+        misleading the caller into thinking there's simply no data.
+        """
         mock_s2a.return_value = AsyncMock(side_effect=Exception("DB error"))
 
-        result = await search_event.__wrapped__("test")
-
-        assert result.total_results == 0
-        assert result.event_id == 0
+        with pytest.raises(Exception, match="DB error"):
+            await search_event.__wrapped__("test")
