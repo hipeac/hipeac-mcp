@@ -209,8 +209,10 @@ async def get_job(job_id: int, ctx: Context = None) -> JobDetail:
     """
     await ensure_connection_async()
 
-    job = await Job.objects.select_related("institution", "employment_type").prefetch_related("career_levels").aget(
-        id=job_id
+    job = (
+        await Job.objects.select_related("institution", "employment_type")
+        .prefetch_related("career_levels")
+        .aget(id=job_id)
     )
     topics_by_job, areas_by_job = await _resolve_job_topics_and_areas([job.id])  # type: ignore[attr-defined]
 

@@ -32,9 +32,7 @@ class JobQuerySet(models.QuerySet["Job"]):
 class Job(models.Model):
     """HiPEAC job posting — read-only."""
 
-    institution = models.ForeignKey(
-        "hipeac_mcp.Institution", null=True, on_delete=models.SET_NULL, related_name="jobs"
-    )
+    institution = models.ForeignKey("hipeac_mcp.Institution", null=True, on_delete=models.SET_NULL, related_name="jobs")
     employment_type = models.ForeignKey(
         "hipeac_mcp.Metadata", null=True, on_delete=models.SET_NULL, related_name="employment_jobs"
     )
