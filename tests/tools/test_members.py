@@ -3,6 +3,9 @@
 import inspect
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
+from django.db.models import Q
+
 
 def make_async_iterator(items):
     """Create an async iterator from a list."""
@@ -12,6 +15,27 @@ def make_async_iterator(items):
             yield item
 
     return async_gen()
+
+
+def lookup_fields(condition: Q) -> set[str]:
+    """Collect the field lookups (e.g. ``first_name__icontains``) used in a Q object."""
+    fields = set()
+    for child in condition.children:
+        if isinstance(child, Q):
+            fields |= lookup_fields(child)
+        else:
+            fields.add(child[0])
+    return fields
+
+
+def make_empty_user_queryset() -> MagicMock:
+    """Create a chainable User queryset mock that yields no rows."""
+    queryset = MagicMock()
+    queryset.distinct.return_value = queryset
+    queryset.filter.return_value = queryset
+    queryset.prefetch_related.return_value = queryset
+    queryset.__getitem__.return_value.__aiter__ = lambda self: make_async_iterator([])
+    return queryset
 
 
 class TestMemberTools:
@@ -205,6 +229,59 @@ class TestMemberTools:
         mock_qs.__getitem__.assert_called()
         call_args = mock_qs.__getitem__.call_args
         assert call_args[0][0].stop == 100
+
+    @pytest.mark.parametrize("limit", [0, -1, -50])
+    @patch("hipeac_mcp.tools.members.User")
+    @patch("hipeac_mcp.tools.members.ContentType")
+    async def test_search_members_limit_has_lower_bound(self, mock_ct, mock_user, limit):
+        """Zero or negative limits are clamped to 1 instead of producing an invalid slice."""
+        from hipeac_mcp.tools.members import search_members
+
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
+        mock_qs = make_empty_user_queryset()
+        mock_user.objects.filter.return_value = mock_qs
+
+        result = await search_members(limit=limit)
+
+        assert mock_qs.__getitem__.call_args[0][0].stop == 1
+        assert result.limit == 1
+
+    @pytest.mark.parametrize("query", ["jane.smith@example.org", "@example.org", "example.org"])
+    @patch("hipeac_mcp.tools.members.User")
+    @patch("hipeac_mcp.tools.members.ContentType")
+    async def test_search_members_query_does_not_match_email(self, mock_ct, mock_user, query):
+        """The free-text query must never be matched against email addresses."""
+        from hipeac_mcp.tools.members import search_members
+
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
+        mock_qs = make_empty_user_queryset()
+        mock_user.objects.filter.return_value = mock_qs
+
+        await search_members(query=query)
+
+        mock_qs.filter.assert_called_once()
+        condition = mock_qs.filter.call_args.args[0]
+        assert not any(field.startswith("email") for field in lookup_fields(condition))
+
+    @patch("hipeac_mcp.tools.members.User")
+    @patch("hipeac_mcp.tools.members.ContentType")
+    async def test_search_members_query_matches_names_and_username(self, mock_ct, mock_user):
+        """The free-text query is matched against first name, last name, and username."""
+        from hipeac_mcp.tools.members import search_members
+
+        mock_ct.objects.aget = AsyncMock(return_value=MagicMock(id=1))
+        mock_qs = make_empty_user_queryset()
+        mock_user.objects.filter.return_value = mock_qs
+
+        await search_members(query="Smith")
+
+        condition = mock_qs.filter.call_args.args[0]
+        assert condition.connector == Q.OR
+        assert lookup_fields(condition) == {
+            "first_name__icontains",
+            "last_name__icontains",
+            "username__icontains",
+        }
 
     @patch("hipeac_mcp.tools.members.fetch_metadata_items", new_callable=AsyncMock, return_value={})
     @patch("hipeac_mcp.tools.members.RelInstitution")

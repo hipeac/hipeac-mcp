@@ -46,7 +46,7 @@ async def search_members(
     3. If the result is empty, then use the full topic list to identify related
        topics and present them to the user as alternatives, offering to search again.
 
-    :param query: Text search on person names and emails only — do NOT use this for research topics or areas.
+    :param query: Text search on person names and usernames only — do NOT use this for research topics or areas.
     :param topic_ids: Filter by research topic IDs (get from get_metadata tool).
     :param application_area_ids: Filter by application area IDs (get from get_metadata tool).
     :param countries: Filter by ISO country codes (e.g., ['BE', 'ES', 'DE']).
@@ -54,7 +54,7 @@ async def search_members(
     :param membership_types: Filter by membership type keys: 'member', 'associated_member',
         'affiliated_member', 'affiliated_phd' (get from get_metadata tool).
         Defaults to member, associated_member, and affiliated_member (excludes affiliated_phd).
-    :param limit: Maximum number of results to return (max: 100).
+    :param limit: Maximum number of results to return (min: 1, max: 100).
     :returns: Structured search results with member profiles.
     """
     await ensure_connection_async()
@@ -72,10 +72,7 @@ async def search_members(
 
     if query:
         queryset = queryset.filter(
-            Q(first_name__icontains=query)
-            | Q(last_name__icontains=query)
-            | Q(email__icontains=query)
-            | Q(username__icontains=query)
+            Q(first_name__icontains=query) | Q(last_name__icontains=query) | Q(username__icontains=query)
         )
 
     if topic_ids:
@@ -114,7 +111,7 @@ async def search_members(
         ]
         queryset = queryset.filter(id__in=type_user_ids)
 
-    actual_limit = min(limit, 100)
+    actual_limit = max(1, min(limit, 100))
     members = [m async for m in queryset.prefetch_related("memberships")[:actual_limit]]
 
     if not members:
