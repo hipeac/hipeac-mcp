@@ -119,42 +119,41 @@ class BaseRagService:
     async def _faiss_search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Run a single FAISS similarity search for one query string.
 
+        Raises on embedding provider or FAISS failures: errors must propagate
+        to the caller rather than be mistaken for a genuine no-match.
+
         :param query: Search query string.
         :param limit: Maximum number of raw chunk results to return.
         :returns: List of chunk result dictionaries sorted by descending similarity.
+        :raises Exception: If embedding generation or the FAISS search fails.
         """
         if self.index is None or self.index.ntotal == 0:  # type: ignore[union-attr]
             return []
 
-        try:
-            query_embedding = await self.generate_embedding(query)
-            query_vector = np.array([query_embedding], dtype=np.float32)
-            faiss.normalize_L2(query_vector)  # type: ignore[no-untyped-call]
+        query_embedding = await self.generate_embedding(query)
+        query_vector = np.array([query_embedding], dtype=np.float32)
+        faiss.normalize_L2(query_vector)  # type: ignore[no-untyped-call]
 
-            distances, indices = self.index.search(query_vector, min(limit, self.index.ntotal))  # type: ignore[union-attr]
-            distances = cast(np.ndarray, distances)
-            indices = cast(np.ndarray, indices)
+        distances, indices = self.index.search(query_vector, min(limit, self.index.ntotal))  # type: ignore[union-attr]
+        distances = cast(np.ndarray, distances)
+        indices = cast(np.ndarray, indices)
 
-            formatted_results: list[dict[str, Any]] = []
+        formatted_results: list[dict[str, Any]] = []
 
-            for i, idx in enumerate(indices[0]):
-                if idx == -1:
-                    continue
+        for i, idx in enumerate(indices[0]):
+            if idx == -1:
+                continue
 
-                formatted_results.append(
-                    {
-                        "id": self.metadata_store["ids"][idx],
-                        "content": self.metadata_store["documents"][idx],
-                        "metadata": self.metadata_store["metadatas"][idx],
-                        "similarity_score": float(distances[0][i]),
-                    }
-                )
+            formatted_results.append(
+                {
+                    "id": self.metadata_store["ids"][idx],
+                    "content": self.metadata_store["documents"][idx],
+                    "metadata": self.metadata_store["metadatas"][idx],
+                    "similarity_score": float(distances[0][i]),
+                }
+            )
 
-            return formatted_results
-
-        except Exception as e:
-            logger.error(f"Error searching: {e}")
-            return []
+        return formatted_results
 
     async def _multi_query_search(self, queries: list[str], limit: int) -> list[dict[str, Any]]:
         """Run multiple FAISS searches in parallel and merge results by chunk ID.

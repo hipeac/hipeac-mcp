@@ -104,31 +104,29 @@ class EventRagService(BaseRagService):
         :param queries: One query string or a list of up to 3 query strings.
         :param limit: Maximum number of activities to retrieve.
         :returns: List of aggregated activity results.
+        :raises Exception: If the embedding provider or FAISS search fails;
+            errors propagate so a failure never reads as a genuine no-match.
         """
         start = time.time()
         query_list = [queries] if isinstance(queries, str) else queries
-        try:
-            base_results = await self._multi_query_search(query_list, limit * 3)
-            logger.info(f"FAISS search completed in {time.time() - start:.2f}s ({len(base_results)} chunks)")
 
-            aggregated = self._aggregate_chunks(base_results)
+        base_results = await self._multi_query_search(query_list, limit * 3)
+        logger.info(f"FAISS search completed in {time.time() - start:.2f}s ({len(base_results)} chunks)")
 
-            if aggregated:
-                await self._enrich_from_database(aggregated)
+        aggregated = self._aggregate_chunks(base_results)
 
-            formatted_results = sorted(aggregated.values(), key=lambda x: x["similarity_score"], reverse=True)[:limit]
+        if aggregated:
+            await self._enrich_from_database(aggregated)
 
-            for result in formatted_results:
-                full_text = " ".join(result["chunks"][:2])
-                result["content_preview"] = full_text[:800].rsplit(" ", 1)[0] if len(full_text) > 800 else full_text
-                result.pop("chunks", None)
+        formatted_results = sorted(aggregated.values(), key=lambda x: x["similarity_score"], reverse=True)[:limit]
 
-            logger.info(f"Total search completed in {time.time() - start:.2f}s")
-            return formatted_results
+        for result in formatted_results:
+            full_text = " ".join(result["chunks"][:2])
+            result["content_preview"] = full_text[:800].rsplit(" ", 1)[0] if len(full_text) > 800 else full_text
+            result.pop("chunks", None)
 
-        except Exception as e:
-            logger.error(f"Error searching event activities after {time.time() - start:.2f}s: {e}")
-            return []
+        logger.info(f"Total search completed in {time.time() - start:.2f}s")
+        return formatted_results
 
     def _aggregate_chunks(self, base_results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Aggregate FAISS chunk results by activity or overview.

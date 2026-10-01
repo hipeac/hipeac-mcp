@@ -512,15 +512,16 @@ class TestSearch:
         assert results[0]["similarity_score"] > results[1]["similarity_score"]
         assert results[0]["activity_id"] == 20
 
-    async def test_search_error_returns_empty(self):
-        """Search errors are caught and return an empty list."""
+    async def test_search_error_raises(self):
+        """Search errors propagate instead of being mistaken for a no-match."""
         service = EventRagService.__new__(EventRagService)
         service.event_id = 100
 
-        with patch.object(service, "_multi_query_search", new_callable=AsyncMock, side_effect=Exception("FAISS")):
-            results = await service.search("test")
-
-        assert results == []
+        with (
+            patch.object(service, "_multi_query_search", new_callable=AsyncMock, side_effect=Exception("FAISS")),
+            pytest.raises(Exception, match="FAISS"),
+        ):
+            await service.search("test")
 
     @patch.object(EventRagService, "_enrich_from_database", new_callable=AsyncMock)
     async def test_search_requests_triple_chunks(self, mock_enrich):

@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
 import pytest
 
 from hipeac_mcp.services.rags.vision.service import VisionRagService
@@ -240,13 +241,13 @@ class TestSearch:
         assert "content_preview" in results[0]
         assert is_fallback is False
 
-    async def test_returns_empty_on_error(self, service):
-        """Search returns empty list when FAISS raises an exception."""
-        with patch.object(service, "_multi_query_search", new_callable=AsyncMock, side_effect=RuntimeError("FAISS")):
-            results, is_fallback = await service.search("query")
-
-        assert results == []
-        assert is_fallback is False
+    async def test_raises_on_search_error(self, service):
+        """Search errors propagate instead of being mistaken for a no-match."""
+        with (
+            patch.object(service, "_multi_query_search", new_callable=AsyncMock, side_effect=RuntimeError("FAISS")),
+            pytest.raises(RuntimeError, match="FAISS"),
+        ):
+            await service.search("query")
 
     async def test_no_score_boost_for_chapters(self, service):
         """Chapter articles do not receive a score boost; score is unchanged."""
@@ -314,6 +315,29 @@ class TestSearchArticles:
             await service.search_articles("query")
 
         mock_search.assert_called_once_with("query")
+
+    async def test_raises_on_embedding_failure(self, service):
+        """An embedding provider failure raises instead of returning an empty response.
+
+        An empty response reads as a genuine no-match; a provider outage must
+        fail the tool call with a clear error instead.
+        """
+        service.embedding_provider.generate_embedding = AsyncMock(
+            side_effect=RuntimeError("Error code: 429 - organization_spend_limit_exceeded")
+        )
+        # Non-empty index so _faiss_search reaches the embedding call
+        service.index = MagicMock()
+        service.index.ntotal = 1
+        service.index.d = 128
+        service.index.search.return_value = (np.array([[0.9]], dtype=np.float32), np.array([[0]]))
+        service.metadata_store = {
+            "ids": ["chunk_1"],
+            "documents": ["Digital envelopes for the AI orchestrator."],
+            "metadatas": [{"slug": "digital-envelopes", "title": "Digital Envelopes", "section": "Recommendations"}],
+        }
+
+        with pytest.raises(RuntimeError, match="organization_spend_limit_exceeded"):
+            await service.search_articles("digital envelopes personal AI orchestrator")
 
 
 class TestIndexArticle:

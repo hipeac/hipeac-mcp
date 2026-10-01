@@ -125,56 +125,52 @@ class VisionRagService(BaseRagService):
 
         :param queries: One or more search query strings.
         :returns: Tuple of (aggregated article results, is_fallback flag).
+        :raises Exception: If the embedding provider or FAISS search fails;
+            errors propagate so a failure never reads as a genuine no-match.
         """
         query_list = [queries] if isinstance(queries, str) else queries
         start = time.time()
-        try:
-            # Fetch enough FAISS chunks to cover all articles at max chunks each.
-            # Vision documents have ~15 articles × MAX_CHUNKS_PER_ARTICLE chunks.
-            candidate_pool = 15 * MAX_CHUNKS_PER_ARTICLE * len(query_list)
-            base_results = await self._multi_query_search(query_list, candidate_pool)
-            logger.info(
-                f"FAISS search ({len(query_list)} quer{'y' if len(query_list) == 1 else 'ies'}) "
-                f"completed in {time.time() - start:.2f}s ({len(base_results)} chunks)"
-            )
 
-            aggregated = self._aggregate_chunks(base_results)
+        # Fetch enough FAISS chunks to cover all articles at max chunks each.
+        # Vision documents have ~15 articles × MAX_CHUNKS_PER_ARTICLE chunks.
+        candidate_pool = 15 * MAX_CHUNKS_PER_ARTICLE * len(query_list)
+        base_results = await self._multi_query_search(query_list, candidate_pool)
+        logger.info(
+            f"FAISS search ({len(query_list)} quer{'y' if len(query_list) == 1 else 'ies'}) "
+            f"completed in {time.time() - start:.2f}s ({len(base_results)} chunks)"
+        )
 
-            if aggregated:
-                await self._enrich_from_database(aggregated)
+        aggregated = self._aggregate_chunks(base_results)
 
+        if aggregated:
+            await self._enrich_from_database(aggregated)
+
+        qualifying = {
+            slug: data for slug, data in aggregated.items() if data["similarity_score"] >= MIN_SIMILARITY_SCORE
+        }
+
+        # If nothing passes the primary threshold (e.g. a rare coined term whose
+        # embedding is sparse), retry with the fallback threshold so the model has
+        # something to reason from rather than a silent empty response.
+        is_fallback = False
+        if not qualifying and aggregated:
             qualifying = {
-                slug: data for slug, data in aggregated.items() if data["similarity_score"] >= MIN_SIMILARITY_SCORE
+                slug: data for slug, data in aggregated.items() if data["similarity_score"] >= FALLBACK_SIMILARITY_SCORE
             }
+            is_fallback = bool(qualifying)
 
-            # If nothing passes the primary threshold (e.g. a rare coined term whose
-            # embedding is sparse), retry with the fallback threshold so the model has
-            # something to reason from rather than a silent empty response.
-            is_fallback = False
-            if not qualifying and aggregated:
-                qualifying = {
-                    slug: data
-                    for slug, data in aggregated.items()
-                    if data["similarity_score"] >= FALLBACK_SIMILARITY_SCORE
-                }
-                is_fallback = bool(qualifying)
+        formatted_results = sorted(qualifying.values(), key=lambda x: x["similarity_score"], reverse=True)
 
-            formatted_results = sorted(qualifying.values(), key=lambda x: x["similarity_score"], reverse=True)
+        for result in formatted_results:
+            # chunks are stored in descending FAISS score order; use only the
+            # best-matching chunk so the preview is focused and clearly relevant.
+            best_chunk = result["chunks"][0] if result["chunks"] else ""
+            resolved = self._resolve_inline_references(best_chunk, result.get("references", []))
+            result["content_preview"] = self._truncate_on_word_boundary(resolved, 800)
+            result.pop("chunks", None)
 
-            for result in formatted_results:
-                # chunks are stored in descending FAISS score order; use only the
-                # best-matching chunk so the preview is focused and clearly relevant.
-                best_chunk = result["chunks"][0] if result["chunks"] else ""
-                resolved = self._resolve_inline_references(best_chunk, result.get("references", []))
-                result["content_preview"] = self._truncate_on_word_boundary(resolved, 800)
-                result.pop("chunks", None)
-
-            logger.info(f"Total search completed in {time.time() - start:.2f}s")
-            return formatted_results, is_fallback
-
-        except Exception as e:
-            logger.error(f"Error searching Vision articles after {time.time() - start:.2f}s: {e}")
-            return [], False
+        logger.info(f"Total search completed in {time.time() - start:.2f}s")
+        return formatted_results, is_fallback
 
     def _aggregate_chunks(self, base_results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Aggregate FAISS chunk results by article slug.

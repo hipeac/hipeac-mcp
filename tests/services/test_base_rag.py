@@ -188,16 +188,16 @@ class TestSearch:
             assert "metadata" in result
             assert "similarity_score" in result
 
-    async def test_returns_empty_on_error(self, mock_faiss_paths, mock_embedding_provider):
-        """Search returns empty list when the embedding call fails on a non-empty index."""
+    async def test_raises_on_embedding_error(self, mock_faiss_paths, mock_embedding_provider):
+        """An embedding call failure raises instead of returning an empty list."""
         service = ConcreteRagService()
         # Add a document so the index is non-empty (avoids the early ntotal==0 exit)
         embeddings = np.random.rand(1, 128).tolist()
         service.upsert_documents(["doc1"], ["content"], embeddings, [{}])
         mock_embedding_provider.generate_embedding = AsyncMock(side_effect=RuntimeError("API down"))
 
-        results = await service.search("query")
-        assert results == []
+        with pytest.raises(RuntimeError, match="API down"):
+            await service.search("query")
 
     async def test_skips_invalid_faiss_indices(self, indexed_service, mock_embedding_provider):
         """Idx == -1 entries returned by FAISS are silently skipped."""
