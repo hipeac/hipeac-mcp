@@ -9,7 +9,7 @@ Canonical source of truth for AI coding agents in this repo. `CLAUDE.md` and `.g
 
 ## Stack
 
-- **Backend**: MCP server (official `mcp` Python SDK, Streamable HTTP transport), Python 3.14, uv.
+- **Backend**: MCP server (official `mcp` Python SDK, Streamable HTTP transport), Python 3.15, uv.
 - **ORM**: Django 6 as ORM layer only — **read-only**; models belong to `hipeac-redux`. MySQL in production (read-only, SSL), SQLite in-memory in dev.
 - **Vector search**: FAISS (`faiss-cpu`) + OpenAI embeddings; index at `HIPEAC_FAISS_INDEX_PATH` (`/storage/faiss` prod, `.faiss` dev).
 - **Jobs**: huey (Redis-backed) for periodic FAISS reindexing (`hipeac_mcp/tasks.py`); reindex signals pushed by hipeac-redux via Redis.
