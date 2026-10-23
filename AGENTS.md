@@ -25,7 +25,10 @@ Conventional Commits: `type(scope): description` — imperative, lowercase, no t
 
 ## Git workflow
 
-Branch + PR for sensitive areas — auth, permissions, serializers / schemas, payments, security settings, CI workflows — or when in doubt; everything else may go straight to `main`. Never merge your own PR.
+- Branch + PR for sensitive areas — auth / login / sessions, permissions / access control, serializers / API schemas, payments / billing, security settings / secrets handling, CI workflows (`.github/workflows/`) — or when in doubt. Decide before the first commit; a direct-to-`main` change that grows into a sensitive area moves to a branch before committing.
+- Everything else (copy, styling, docs, tests, isolated bug fixes, dependency bumps) may go straight to `main`.
+- Branch `type/short-description` from `main`; PR title in Conventional Commits form (becomes the squash commit). Never merge your own PR; leave it for review.
+- This decides _where_ commits go, not _whether_: commit / push / open PRs only when asked.
 
 ## Specs
 
@@ -36,11 +39,13 @@ Shared OpenSpec store `hipeac-specs` (`openspec context` for path): specs + chan
 - PEP 8; type hints on all signatures.
 - Docstrings (public functions/methods/modules): reST, Sphinx-compatible, no type info; `:param` / `:returns` / `:raises` end with period.
 - `./run ruff format . && ./run ruff check hipeac_mcp` clean before commit; config in `pyproject.toml`; no inline ignores without justification comment.
-- All new code needs tests. Tests in `tests/`, never inline. Suite: `./run pytest --cov=hipeac_mcp --cov-report=term`.
+- All new code needs tests. Tests in `tests/`, never inline.
 - `pytest-asyncio` in `auto` mode — async tests need no marker. `tests/conftest.py` runs `setup_django()` first; `redis_client` session fixture skips integration tests when Redis is unreachable.
 - Mock/guard filesystem + external services; never production DB or live APIs.
 
 ### Test-review workflow
+
+When reviewing / auditing / adding tests:
 
 1. Read tests first; fix weak assertions before running.
 2. Run adjusted suite — failure after adjustment = real bug.
