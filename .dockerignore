@@ -1,0 +1,31 @@
+# Build context
+.git
+.venv
+**/__pycache__
+*.py[cod]
+*$py.class
+.ruff_cache
+.pytest_cache
+.coverage
+coverage.xml
+htmlcov
+test-reports
+*.egg-info
+.DS_Store
+._*
+
+# Environment / secrets / local state
+.env
+.faiss
+dev.db
+.tmp
+
+# Tests are not needed in the runtime image
+tests
+
+# Local project memory / docs
+openspec
+docs
+.github
+AGENTS.md
+CLAUDE.md
